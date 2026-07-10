@@ -5,10 +5,17 @@
 // output, scripted by marker strings in the prompt text — mirroring
 // test/fixtures/fake-opencode-server.mjs's approach for OpencodeProvider,
 // but faking a subprocess instead of an HTTP server.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const prompt = readFileSync(0, "utf-8");
+
+// Lets tests confirm the real OS process this binary spawned into has
+// actually exited (not just that a signal was sent to it), by polling
+// `process.kill(pid, 0)` against the PID recorded here.
+if (process.env.FAKE_CLAUDE_PID_FILE) {
+  writeFileSync(process.env.FAKE_CLAUDE_PID_FILE, String(process.pid));
+}
 
 function flagValue(name) {
   const i = args.indexOf(name);

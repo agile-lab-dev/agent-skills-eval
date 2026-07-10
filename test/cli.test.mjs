@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -15,6 +15,19 @@ const execFileAsync = promisify(execFile);
 
 function tempRoot() {
   return mkdtempSync(path.join(tmpdir(), "agent-skills-eval-cli-"));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForFile(filePath, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(filePath)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${filePath}`);
+    await sleep(20);
+  }
+  return readFileSync(filePath, "utf8").trim();
 }
 
 function writeSkill(root) {
@@ -278,6 +291,71 @@ test("CLI --run-mode claude-code skips API credential requirements and runs via 
   const result = JSON.parse(stdout);
   assert.equal(result.failed, 0);
   assert.ok(existsSync(path.join(workspace, "iteration-1", "eval-top-month", "with_skill", "grading.json")));
+});
+
+test("CLI: SIGINT during a running claude-code call exits promptly with code 130 and kills the underlying subprocess", async () => {
+  const root = tempRoot();
+  const skillDir = path.join(root, "hang-skill");
+  mkdirSync(path.join(skillDir, "evals"), { recursive: true });
+  writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    ["---", "name: hang-skill", "description: Hangs forever, for signal-handling tests.", "---", "", "Do nothing."].join("\n"),
+  );
+  writeFileSync(
+    path.join(skillDir, "evals", "evals.json"),
+    JSON.stringify({
+      skill_name: "hang-skill",
+      evals: [{ id: "hang", name: "hang", prompt: "__FAKE_CLAUDE_HANG__", assertions: ["n/a"] }],
+    }),
+  );
+
+  const workspace = path.join(root, "workspace");
+  const configPath = path.join(root, "agent-skills-eval.yaml");
+  const pidFile = path.join(root, "fake-claude.pid");
+
+  writeFileSync(configPath, [
+    `root: ${JSON.stringify(root)}`,
+    `workspace: ${JSON.stringify(workspace)}`,
+    "target: fake-model",
+    "judge: fake-model",
+    "runMode: claude-code",
+    "claudeCode:",
+    `  claudeBinary: ${JSON.stringify(FAKE_CLAUDE_BINARY)}`,
+    `  dir: ${JSON.stringify(path.join(root, "claude-code-dir"))}`,
+    "  timeoutMs: 60000",
+    "  judgeTimeoutMs: 60000",
+    "layout: iteration",
+    "report:",
+    "  enabled: false",
+    "logging:",
+    "  format: silent",
+  ].join("\n"));
+
+  const child = spawn(process.execPath, ["dist/cli.js", "--config", configPath], {
+    cwd: path.resolve("."),
+    env: { ...process.env, OPENAI_API_KEY: "", OPENAI_BASE_URL: "", FAKE_CLAUDE_PID_FILE: pidFile },
+  });
+
+  const exitPromise = new Promise((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+  });
+
+  try {
+    const fakePid = Number(await waitForFile(pidFile, 5000));
+    assert.doesNotThrow(() => process.kill(fakePid, 0), "fake claude subprocess should be alive before SIGINT");
+
+    const started = Date.now();
+    child.kill("SIGINT");
+
+    const { code } = await exitPromise;
+    assert.ok(Date.now() - started < 8000, "CLI should exit within a few seconds of SIGINT, not hang");
+    assert.equal(code, 130);
+
+    await sleep(200);
+    assert.throws(() => process.kill(fakePid, 0), /ESRCH/, "fake claude subprocess should be gone after the CLI exits");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  }
 });
 
 test("CLI --run-mode bogus fails validation with a clear error", async () => {

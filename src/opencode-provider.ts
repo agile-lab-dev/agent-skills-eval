@@ -5,6 +5,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk";
 import { safeResolve } from "./fs-utils.js";
 import type { Provider, ProviderResult, SkillSource, ToolCall } from "./provider.js";
+import { registerShutdownHook } from "./shutdown.js";
 
 export interface OpencodeOptions {
   /** Shown as `provider` in ProviderResult. Default "opencode". */
@@ -47,6 +48,8 @@ function sleep(ms: number): Promise<void> {
 interface SpawnedServer {
   url: string;
   close(): void;
+  /** Sends SIGTERM (escalating to SIGKILL after the grace period) and resolves once the child has actually exited, not just once the signal was sent. */
+  closeAndWait(): Promise<void>;
   /** Combined stdout+stderr of the child process so far, including everything logged after startup. */
   getLog(): string;
 }
@@ -85,6 +88,14 @@ function spawnOpencodeServer(options: {
       killTimer.unref();
     };
 
+    const closeAndWait = (): Promise<void> => {
+      if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+      return new Promise((resolveClose) => {
+        child.once("exit", () => resolveClose());
+        forceKill();
+      });
+    };
+
     const startTimer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -100,7 +111,7 @@ function spawnOpencodeServer(options: {
       if (match) {
         settled = true;
         clearTimeout(startTimer);
-        resolve({ url: match[1], close: forceKill, getLog: () => output });
+        resolve({ url: match[1], close: forceKill, closeAndWait, getLog: () => output });
       }
     });
     child.stderr?.on("data", (chunk) => {
@@ -360,6 +371,7 @@ export class OpencodeProvider implements Provider {
     const start = Date.now();
     const deadline = start + this.timeoutMs;
     let server: SpawnedServer | undefined;
+    let unregisterShutdown: (() => void) | undefined;
 
     try {
       let baseUrl = this.baseUrl;
@@ -372,6 +384,7 @@ export class OpencodeProvider implements Provider {
             : undefined,
         });
         baseUrl = server.url;
+        unregisterShutdown = registerShutdownHook(() => server!.closeAndWait());
       }
 
       const client = createOpencodeClient({ baseUrl, directory: this.dir });
@@ -409,6 +422,7 @@ export class OpencodeProvider implements Provider {
         server
       );
     } finally {
+      unregisterShutdown?.();
       server?.close();
     }
   }

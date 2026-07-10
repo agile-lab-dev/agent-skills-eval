@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ClaudeCodeProvider } from "../dist/index.js";
+import { ClaudeCodeProvider, installSignalHandlers } from "../dist/index.js";
 
 const FAKE_BINARY = fileURLToPath(new URL("./fixtures/fake-claude-code-binary.mjs", import.meta.url));
 
@@ -48,6 +48,49 @@ test("ClaudeCodeProvider.complete: a hung run is killed and resolves with a time
   const elapsed = Date.now() - started;
   assert.match(result.error, /timed out/i);
   assert.ok(elapsed < 5000, `expected timeout to fire quickly, took ${elapsed}ms`);
+});
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForFile(filePath, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(filePath)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${filePath}`);
+    await sleep(20);
+  }
+  return readFileSync(filePath, "utf8").trim();
+}
+
+test("ClaudeCodeProvider.complete: a SIGINT kills the underlying claude subprocess via the shutdown-hook registry", async () => {
+  const originalExit = process.exit;
+  process.exit = () => {};
+  const pidFile = path.join(mkdtempSync(path.join(tmpdir(), "claude-code-pid-")), "pid");
+  const originalPidFileEnv = process.env.FAKE_CLAUDE_PID_FILE;
+  process.env.FAKE_CLAUDE_PID_FILE = pidFile;
+
+  try {
+    installSignalHandlers({ timeoutMs: 3000 });
+    const p = provider({ timeoutMs: 60_000 });
+    const completion = p.complete("__FAKE_CLAUDE_HANG__");
+
+    const pid = Number(await waitForFile(pidFile, 2000));
+    assert.doesNotThrow(() => process.kill(pid, 0), "fake claude process should be alive before SIGINT");
+
+    process.emit("SIGINT", "SIGINT");
+
+    const started = Date.now();
+    await completion;
+    assert.ok(Date.now() - started < 5000, "shutdown hook should kill the subprocess quickly, not hang");
+
+    await sleep(100);
+    assert.throws(() => process.kill(pid, 0), /ESRCH/, "fake claude process should be gone after SIGINT");
+  } finally {
+    process.exit = originalExit;
+    if (originalPidFileEnv === undefined) delete process.env.FAKE_CLAUDE_PID_FILE;
+    else process.env.FAKE_CLAUDE_PID_FILE = originalPidFileEnv;
+  }
 });
 
 test("ClaudeCodeProvider.complete: a run that exits without a result event surfaces a diagnostic error", async () => {

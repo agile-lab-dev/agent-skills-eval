@@ -36,6 +36,7 @@ export type { OpenAICompatibleOptions } from "./openai-compatible-provider.js";
 export type { OpencodeOptions } from "./opencode-provider.js";
 export type { ClaudeCodeOptions } from "./claude-code-provider.js";
 export type { RunPrompts } from "./artifacts.js";
+export type { ShutdownHook } from "./shutdown.js";
 export type {
   CompleteChatArgs,
   Provider,
@@ -64,3 +65,4 @@ export { ClaudeCodeProvider } from "./claude-code-provider.js";
 export { runEval } from "./run-eval.js";
 export { loadSkill } from "./skill.js";
 export { createStaticProvider } from "./provider.js";
+export { installSignalHandlers, registerShutdownHook } from "./shutdown.js";

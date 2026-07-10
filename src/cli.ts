@@ -8,6 +8,7 @@ import { OpenAICompatibleProvider } from "./openai-compatible-provider.js";
 import { OpencodeProvider } from "./opencode-provider.js";
 import { ClaudeCodeProvider } from "./claude-code-provider.js";
 import type { Provider } from "./provider.js";
+import { installSignalHandlers, registerShutdownHook } from "./shutdown.js";
 
 interface CliOptions {
   config?: string;
@@ -76,6 +77,8 @@ function requireApiCredentials(
 }
 
 async function main(): Promise<void> {
+  installSignalHandlers();
+
   const program = new Command();
   program
     .name("agent-skills-eval")
@@ -318,6 +321,7 @@ async function main(): Promise<void> {
     closeReporter = reporter.close;
   }
 
+  const unregisterReporter = closeReporter ? registerShutdownHook(closeReporter) : undefined;
   try {
     const result = await evaluateSkills({
       root,
@@ -341,6 +345,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     process.exitCode = result.failed > 0 ? 1 : 0;
   } finally {
+    unregisterReporter?.();
     await closeReporter?.();
   }
 }

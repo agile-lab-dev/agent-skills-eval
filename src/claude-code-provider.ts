@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { safeResolve } from "./fs-utils.js";
 import type { Provider, ProviderResult, SkillSource, ToolCall } from "./provider.js";
+import { registerShutdownHook } from "./shutdown.js";
 
 export interface ClaudeCodeOptions {
   /** Shown as `provider` in ProviderResult. Default "claude-code". */
@@ -273,6 +274,19 @@ export class ClaudeCodeProvider implements Provider {
         stdio: ["pipe", "pipe", "pipe"],
       });
 
+      const unregisterShutdown = registerShutdownHook(
+        () =>
+          new Promise<void>((resolveKill) => {
+            if (child.exitCode !== null || child.signalCode !== null) {
+              resolveKill();
+              return;
+            }
+            child.once("exit", () => resolveKill());
+            child.kill("SIGTERM");
+            setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
+          })
+      );
+
       let stdout = "";
       let stderr = "";
       let settled = false;
@@ -297,6 +311,7 @@ export class ClaudeCodeProvider implements Provider {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutTimer);
+        unregisterShutdown();
         reject(err);
       });
 
@@ -304,6 +319,7 @@ export class ClaudeCodeProvider implements Provider {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutTimer);
+        unregisterShutdown();
         if (timedOut) {
           const outcome = parseOutcome(stdout);
           resolve({ ...outcome, errorMessage: `claude-code run timed out after ${this.timeoutMs}ms` });
