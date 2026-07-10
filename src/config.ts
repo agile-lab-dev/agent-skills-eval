@@ -30,6 +30,12 @@ export interface ClaudeCodeConfig {
   disallowedTools?: string[];
 }
 
+export interface ApiConfig {
+  timeoutMs?: number;
+  /** Timeout for judge/grader calls. Defaults to `timeoutMs`. Judge sessions read a full transcript plus output files and are often slower than the executor run they grade. */
+  judgeTimeoutMs?: number;
+}
+
 export interface AgentSkillsEvalConfig {
   root?: string;
   workspace?: string;
@@ -39,6 +45,7 @@ export interface AgentSkillsEvalConfig {
   baseUrl?: string;
   apiKeyEnv?: string;
   runMode?: ProviderRunMode;
+  api?: ApiConfig;
   opencode?: OpencodeConfig;
   claudeCode?: ClaudeCodeConfig;
   include?: string[];
@@ -119,6 +126,15 @@ function parseRunMode(value: unknown): ProviderRunMode | undefined {
   throw new Error('runMode must be "api", "opencode", or "claude-code"');
 }
 
+function parseApi(value: unknown): ApiConfig | undefined {
+  if (value === undefined || value === null) return undefined;
+  const record = asRecord(value, "api");
+  return {
+    timeoutMs: asNumber(record.timeoutMs, "api.timeoutMs"),
+    judgeTimeoutMs: asNumber(record.judgeTimeoutMs, "api.judgeTimeoutMs"),
+  };
+}
+
 function parseOpencode(value: unknown): OpencodeConfig | undefined {
   if (value === undefined || value === null) return undefined;
   const record = asRecord(value, "opencode");
@@ -185,6 +201,7 @@ export function normalizeConfig(raw: unknown): AgentSkillsEvalConfig {
     baseUrl: asString(record.baseUrl, "baseUrl"),
     apiKeyEnv: asString(record.apiKeyEnv, "apiKeyEnv"),
     runMode: parseRunMode(record.runMode),
+    api: parseApi(record.api),
     opencode: parseOpencode(record.opencode),
     claudeCode: parseClaudeCode(record.claudeCode),
     include: asStringArray(record.include, "include"),

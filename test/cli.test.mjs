@@ -149,6 +149,50 @@ test("CLI runs from YAML config and writes JSONL logs plus report artifacts", as
   }
 });
 
+test("CLI runs with an api: { timeoutMs, judgeTimeoutMs } config block", async () => {
+  const root = tempRoot();
+  writeSkill(root);
+  const workspace = path.join(root, "workspace");
+  const configPath = path.join(root, "agent-skills-eval.yaml");
+  const logFile = path.join(root, "events.jsonl");
+  const mock = await startOpenAiMock();
+
+  try {
+    writeFileSync(configPath, [
+      `root: ${JSON.stringify(root)}`,
+      `workspace: ${JSON.stringify(workspace)}`,
+      "target: mock-target",
+      "judge: mock-judge",
+      `baseUrl: ${JSON.stringify(mock.url)}`,
+      "apiKeyEnv: MOCK_OPENAI_KEY",
+      "api:",
+      "  timeoutMs: 60000",
+      "  judgeTimeoutMs: 120000",
+      "layout: iteration",
+      "strict: true",
+      "report:",
+      "  enabled: false",
+      "logging:",
+      "  format: jsonl",
+      `  file: ${JSON.stringify(logFile)}`,
+    ].join("\n"));
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["dist/cli.js", "--config", configPath],
+      {
+        cwd: path.resolve("."),
+        env: { ...process.env, MOCK_OPENAI_KEY: "test-key" },
+      },
+    );
+
+    const result = JSON.parse(stdout);
+    assert.equal(result.failed, 0);
+  } finally {
+    await mock.close();
+  }
+});
+
 test("CLI --run-mode opencode skips API credential requirements and runs via the opencode server", async () => {
   const root = tempRoot();
   writeSkill(root);
@@ -248,6 +292,58 @@ test("CLI --run-mode bogus fails validation with a clear error", async () => {
     ),
     (err) => {
       assert.match(err.stderr, /--run-mode must be "api", "opencode", or "claude-code"/);
+      return true;
+    },
+  );
+});
+
+test("CLI --api-timeout rejects non-positive values", async () => {
+  const root = tempRoot();
+  writeSkill(root);
+
+  await assert.rejects(
+    execFileAsync(
+      process.execPath,
+      [
+        "dist/cli.js",
+        root,
+        "--target",
+        "fake-model",
+        "--base-url",
+        "http://127.0.0.1:1/v1",
+        "--api-timeout",
+        "0",
+      ],
+      { cwd: path.resolve("."), env: { ...process.env, OPENAI_API_KEY: "test-key" } },
+    ),
+    (err) => {
+      assert.match(err.stderr, /--api-timeout must be a positive integer/);
+      return true;
+    },
+  );
+});
+
+test("CLI --api-judge-timeout rejects non-positive values", async () => {
+  const root = tempRoot();
+  writeSkill(root);
+
+  await assert.rejects(
+    execFileAsync(
+      process.execPath,
+      [
+        "dist/cli.js",
+        root,
+        "--target",
+        "fake-model",
+        "--base-url",
+        "http://127.0.0.1:1/v1",
+        "--api-judge-timeout",
+        "0",
+      ],
+      { cwd: path.resolve("."), env: { ...process.env, OPENAI_API_KEY: "test-key" } },
+    ),
+    (err) => {
+      assert.match(err.stderr, /--api-judge-timeout must be a positive integer/);
       return true;
     },
   );

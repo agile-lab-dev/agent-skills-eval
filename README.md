@@ -133,6 +133,9 @@ target: gpt-4o-mini
 judge: gpt-4o-mini
 baseUrl: https://api.openai.com/v1
 apiKeyEnv: OPENAI_API_KEY
+api:
+  timeoutMs: 120000       # default; per-attempt request timeout for the default "api" run mode
+  judgeTimeoutMs: 180000  # defaults to api.timeoutMs
 include:
   - "skills/**"
 exclude:
@@ -399,6 +402,8 @@ npx agent-skills-eval [root] \
   --judge gpt-4o-mini \
   --base-url https://api.openai.com/v1 \
   --api-key-env OPENAI_API_KEY \
+  --api-timeout 120000 \
+  --api-judge-timeout 180000 \
   --include "skills/**" \
   --exclude "**/draft-*" \
   --concurrency 4 \
@@ -409,6 +414,8 @@ npx agent-skills-eval [root] \
 ```
 
 **Logging modes**: `pretty` for humans, `jsonl` for machines, `silent` for quiet CI.
+
+**`--api-timeout <ms>` / `--api-judge-timeout <ms>`**: per-attempt request timeout for the default `api` run mode (an `AbortController` aborts the HTTP call once elapsed). Default `120000` (2 minutes) for both; `--api-judge-timeout` defaults to `--api-timeout` if unset. `fetchWithRetry` retries on timeout, so worst-case wall time is roughly `attempts * timeoutMs` plus backoff, not a single `timeoutMs`.
 
 Or run via the [opencode CLI](#opencode-run-mode) instead of an API:
 

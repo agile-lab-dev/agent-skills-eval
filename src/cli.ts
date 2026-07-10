@@ -18,6 +18,8 @@ interface CliOptions {
   baseUrl?: string;
   apiKeyEnv?: string;
   runMode?: "api" | "opencode" | "claude-code";
+  apiTimeout?: string;
+  apiJudgeTimeout?: string;
   opencodeAgent?: string;
   opencodeAuto?: boolean;
   opencodeDir?: string;
@@ -87,6 +89,11 @@ async function main(): Promise<void> {
     .option("--base-url <url>", "OpenAI-compatible API base URL")
     .option("--api-key-env <name>", "Environment variable containing the API key")
     .option("--run-mode <mode>", "Execution mode: api (default), opencode, or claude-code")
+    .option("--api-timeout <ms>", "API request timeout in milliseconds (run-mode api)")
+    .option(
+      "--api-judge-timeout <ms>",
+      "API judge/grader request timeout in milliseconds; defaults to --api-timeout"
+    )
     .option("--opencode-agent <name>", "opencode --agent to use")
     .option("--opencode-auto", "Auto-approve opencode permissions (dangerous)")
     .option("--no-opencode-auto", "Disable opencode auto-approve, overriding config file")
@@ -133,6 +140,14 @@ async function main(): Promise<void> {
   const baseUrl = opts.baseUrl ?? config.baseUrl ?? process.env.OPENAI_BASE_URL;
   const apiKey = process.env[apiKeyEnv];
   const runMode = opts.runMode ?? config.runMode ?? "api";
+  const apiTimeoutMs =
+    opts.apiTimeout !== undefined
+      ? Number.parseInt(opts.apiTimeout, 10)
+      : config.api?.timeoutMs ?? 120_000;
+  const apiJudgeTimeoutMs =
+    opts.apiJudgeTimeout !== undefined
+      ? Number.parseInt(opts.apiJudgeTimeout, 10)
+      : config.api?.judgeTimeoutMs ?? apiTimeoutMs;
   const include = opts.include && opts.include.length > 0 ? opts.include : config.include;
   const exclude = opts.exclude && opts.exclude.length > 0 ? opts.exclude : config.exclude;
   const concurrency = opts.concurrency !== undefined
@@ -208,6 +223,12 @@ async function main(): Promise<void> {
   if (logFormat !== "pretty" && logFormat !== "jsonl" && logFormat !== "silent") {
     throw new Error('--log-format must be "pretty", "jsonl", or "silent"');
   }
+  if (runMode === "api" && (!Number.isInteger(apiTimeoutMs) || apiTimeoutMs < 1)) {
+    throw new Error("--api-timeout must be a positive integer (milliseconds)");
+  }
+  if (runMode === "api" && (!Number.isInteger(apiJudgeTimeoutMs) || apiJudgeTimeoutMs < 1)) {
+    throw new Error("--api-judge-timeout must be a positive integer (milliseconds)");
+  }
   if (runMode === "opencode" && (!Number.isInteger(opencodeTimeoutMs) || opencodeTimeoutMs < 1)) {
     throw new Error("--opencode-timeout must be a positive integer (milliseconds)");
   }
@@ -272,12 +293,14 @@ async function main(): Promise<void> {
       baseUrl: creds.baseUrl,
       apiKey: creds.apiKey,
       model: targetModel,
+      timeoutMs: apiTimeoutMs,
     });
     judge = new OpenAICompatibleProvider({
       providerName: "openai-compatible",
       baseUrl: creds.baseUrl,
       apiKey: creds.apiKey,
       model: judgeModel,
+      timeoutMs: apiJudgeTimeoutMs,
     });
   }
 

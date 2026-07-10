@@ -97,6 +97,7 @@ export class OpenAICompatibleProvider implements Provider {
   private baseUrl: string;
   private apiKey: string;
   private options: OpenAICompatibleOptions;
+  private timeoutMs: number;
 
   constructor(
     nameOrOptions: string | (OpenAICompatibleOptions & { baseUrl: string; apiKey: string }),
@@ -118,6 +119,7 @@ export class OpenAICompatibleProvider implements Provider {
       this.model = nameOrOptions.model ?? "gpt-4o-mini";
       this.options = nameOrOptions;
     }
+    this.timeoutMs = this.options.timeoutMs ?? 120_000;
   }
 
   async complete(prompt: string): Promise<ProviderResult> {
@@ -228,16 +230,14 @@ export class OpenAICompatibleProvider implements Provider {
     let lastError: Error | undefined;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      const controller = this.options.timeoutMs ? new AbortController() : undefined;
-      const timer = controller
-        ? setTimeout(() => controller.abort(), this.options.timeoutMs)
-        : undefined;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
         const res = await fetch(`${this.baseUrl}/chat/completions`, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
-          signal: controller?.signal,
+          signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -246,12 +246,17 @@ export class OpenAICompatibleProvider implements Provider {
 
         return (await res.json()) as OpenAIChatResponse;
       } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
+        lastError =
+          err instanceof Error && err.name === "AbortError"
+            ? new Error(`${this.name}: request timed out after ${this.timeoutMs}ms`)
+            : err instanceof Error
+              ? err
+              : new Error(String(err));
         if (attempt < attempts) {
           await new Promise((resolve) => setTimeout(resolve, backoffMs * attempt));
         }
       } finally {
-        if (timer) clearTimeout(timer);
+        clearTimeout(timer);
       }
     }
 
