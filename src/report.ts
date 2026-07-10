@@ -283,7 +283,7 @@ function renderToolCallsPanel(calls: ToolCall[] | undefined): string {
     })
     .join("\n");
   return `
-    <details class="tools" open>
+    <details class="tools">
       <summary>tool calls (${calls.length})</summary>
       <table class="tool-calls">
         <thead><tr><th>#</th><th>Tool</th><th>Arguments</th></tr></thead>
@@ -293,16 +293,34 @@ function renderToolCallsPanel(calls: ToolCall[] | undefined): string {
   `;
 }
 
-function renderRun(run: ReportRun): string {
+/** Did a `with_skill` run's model actually call the `skill` tool for this skill? `undefined` when not applicable (without_skill mode, or no tool-call data captured). Tool name is matched case-insensitively — opencode calls it `skill`, Claude Code calls it `Skill`. The argument key also differs: opencode uses `name`, Claude Code uses `skill`. */
+function skillWasInvoked(run: ReportRun, skillName: string): boolean | undefined {
+  if (run.mode !== "with_skill" || !run.toolCalls) return undefined;
+  return run.toolCalls.some((c) => {
+    if (c.function.name.toLowerCase() !== "skill") return false;
+    const args = c.parsedArguments as Record<string, unknown> | undefined;
+    return args?.name === skillName || args?.skill === skillName;
+  });
+}
+
+function renderRun(run: ReportRun, skillName: string): string {
   const summary = run.grading.summary;
   const passed = summary.failed === 0 && summary.total > 0;
   const status = summary.total === 0 ? "n/a" : passed ? "PASS" : "FAIL";
   const statusCls = summary.total === 0 ? "muted" : passed ? "ok" : "bad";
+  const invoked = skillWasInvoked(run, skillName);
+  const invokedBadge =
+    invoked === undefined
+      ? ""
+      : invoked
+        ? `<span class="skill-invoked ok">skill picked up</span>`
+        : `<span class="skill-invoked bad">skill not picked up</span>`;
   return `
     <section class="run">
       <header class="run-head">
         <span class="mode mode-${run.mode}">${run.mode}</span>
         <span class="status ${statusCls}">${status}</span>
+        ${invokedBadge}
         <span class="muted">${ms(run.timing.duration_ms)} · ${run.timing.total_tokens} tokens · ${summary.passed}/${summary.total}</span>
       </header>
       ${
@@ -323,10 +341,12 @@ function renderRun(run: ReportRun): string {
   `;
 }
 
-function renderEval(ev: ReportEval): string {
+function renderEval(ev: ReportEval, skillName: string): string {
   const totalAssertions = ev.modes.reduce((sum, m) => sum + m.grading.summary.total, 0);
   const passedAssertions = ev.modes.reduce((sum, m) => sum + m.grading.summary.passed, 0);
-  const allPassed = ev.modes.every((m) => m.grading.summary.failed === 0 && m.grading.summary.total > 0);
+  const withSkillRun = ev.modes.find((m) => m.mode === "with_skill");
+  const gradedRun = withSkillRun ?? ev.modes[0];
+  const allPassed = gradedRun !== undefined && gradedRun.grading.summary.failed === 0 && gradedRun.grading.summary.total > 0;
   const cls = allPassed ? "ok" : "bad";
   return `
     <details class="eval ${cls}">
@@ -335,7 +355,7 @@ function renderEval(ev: ReportEval): string {
         <span class="eval-name">${escapeHtml(ev.slug)}</span>
         <span class="muted">${passedAssertions}/${totalAssertions} assertions</span>
       </summary>
-      <div class="eval-body">${ev.modes.map(renderRun).join("\n")}</div>
+      <div class="eval-body">${ev.modes.map((run) => renderRun(run, skillName)).join("\n")}</div>
     </details>
   `;
 }
@@ -359,7 +379,7 @@ function renderSkillSection(skill: ReportSkill): string {
         <div class="muted">${t.passed}/${t.total} assertions · ${skill.evals.length} evals · ${ms(t.avgDurationMs)} avg · ${Math.round(t.avgTokens)} tokens avg</div>
         ${benchmarkBlock}
       </header>
-      <div class="evals">${skill.evals.map(renderEval).join("\n")}</div>
+      <div class="evals">${skill.evals.map((ev) => renderEval(ev, skill.meta.name)).join("\n")}</div>
     </article>
   `;
 }
@@ -432,6 +452,9 @@ const STYLES = `
   .mode-without_skill { background: #fff1e5; color: #bc4c00; }
   .status.ok { color: var(--ok); font-weight: 600; }
   .status.bad { color: var(--bad); font-weight: 600; }
+  .skill-invoked { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+  .skill-invoked.ok { background: var(--ok-bg); color: var(--ok); }
+  .skill-invoked.bad { background: var(--bad-bg); color: var(--bad); }
   .run details > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
   .run details[open] > summary { color: var(--fg); }
   .run pre { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; }
