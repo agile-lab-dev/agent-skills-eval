@@ -94,6 +94,10 @@ interface ReportSkill {
     passRate: number;
     avgDurationMs: number;
     avgTokens: number;
+    withoutPassed: number;
+    withoutTotal: number;
+    withoutPassRate: number;
+    regressions: number;
   };
 }
 
@@ -138,6 +142,9 @@ function collectSkill(skillDir: string): ReportSkill | undefined {
   let totalDuration = 0;
   let totalTokens = 0;
   let withSkillRuns = 0;
+  let withoutPassed = 0;
+  let withoutFailed = 0;
+  let regressions = 0;
 
   for (const entry of entries) {
     const evalDir = path.join(skillDir, entry.name);
@@ -162,7 +169,16 @@ function collectSkill(skillDir: string): ReportSkill | undefined {
         totalDuration += timing.duration_ms;
         totalTokens += timing.total_tokens;
         withSkillRuns += 1;
+      } else {
+        withoutPassed += grading.summary.passed;
+        withoutFailed += grading.summary.failed;
       }
+    }
+
+    const withRun = modes.find((m) => m.mode === "with_skill");
+    const withoutRun = modes.find((m) => m.mode === "without_skill");
+    if (withRun && withoutRun && withoutRun.grading.summary.pass_rate >= withRun.grading.summary.pass_rate) {
+      regressions += 1;
     }
 
     if (modes.length > 0) {
@@ -171,6 +187,7 @@ function collectSkill(skillDir: string): ReportSkill | undefined {
   }
 
   const total = passed + failed;
+  const withoutTotal = withoutPassed + withoutFailed;
   return {
     meta,
     benchmark,
@@ -182,6 +199,10 @@ function collectSkill(skillDir: string): ReportSkill | undefined {
       passRate: total === 0 ? 1 : passed / total,
       avgDurationMs: withSkillRuns === 0 ? 0 : totalDuration / withSkillRuns,
       avgTokens: withSkillRuns === 0 ? 0 : totalTokens / withSkillRuns,
+      withoutPassed,
+      withoutTotal,
+      withoutPassRate: withoutTotal === 0 ? 1 : withoutPassed / withoutTotal,
+      regressions,
     },
   };
 }
@@ -254,6 +275,14 @@ function renderBar(passRate: number): string {
   return `<div class="bar ${cls}"><div class="fill" style="width:${width}%"></div></div>`;
 }
 
+function renderDeltaCell(t: ReportSkill["totals"]): string {
+  if (t.withoutTotal === 0) return `<td class="num delta-cell muted">—</td>`;
+  const deltaPp = (t.passRate - t.withoutPassRate) * 100;
+  const cls = deltaPp > 0 ? "ok" : deltaPp < 0 ? "bad" : "muted";
+  const sign = deltaPp >= 0 ? "+" : "";
+  return `<td class="num delta-cell ${cls}">${sign}${deltaPp.toFixed(1)}pp</td>`;
+}
+
 function renderSkillRow(skill: ReportSkill): string {
   const t = skill.totals;
   const cls = rateClass(t.passRate);
@@ -265,6 +294,7 @@ function renderSkillRow(skill: ReportSkill): string {
       <td class="num">${t.passed}/${t.total}</td>
       <td class="num">${pct(t.passRate)}</td>
       <td class="bar-cell">${renderBar(t.passRate)}</td>
+      ${renderDeltaCell(t)}
       <td class="num">${ms(t.avgDurationMs)}</td>
       <td class="num">${Math.round(t.avgTokens)}</td>
     </tr>
@@ -365,9 +395,8 @@ function renderRun(run: ReportRun, skillName: string): string {
 }
 
 function renderEval(ev: ReportEval, skillName: string, skillSlug: string): string {
-  const totalAssertions = ev.modes.reduce((sum, m) => sum + m.grading.summary.total, 0);
-  const passedAssertions = ev.modes.reduce((sum, m) => sum + m.grading.summary.passed, 0);
   const withSkillRun = ev.modes.find((m) => m.mode === "with_skill");
+  const withoutSkillRun = ev.modes.find((m) => m.mode === "without_skill");
   const gradedRun = withSkillRun ?? ev.modes[0];
   const allPassed = gradedRun !== undefined && gradedRun.grading.summary.failed === 0 && gradedRun.grading.summary.total > 0;
   const cls = allPassed ? "ok" : "bad";
@@ -376,12 +405,32 @@ function renderEval(ev: ReportEval, skillName: string, skillSlug: string): strin
   // runs (unlike the judge prompt, which embeds each run's own output) \u2014
   // show it once instead of once per run.
   const userPrompt = ev.modes.find((m) => m.prompts?.user)?.prompts?.user ?? "(unknown)";
+
+  const isRegression =
+    withSkillRun !== undefined &&
+    withoutSkillRun !== undefined &&
+    withoutSkillRun.grading.summary.pass_rate >= withSkillRun.grading.summary.pass_rate;
+
+  const withSkillLabel = withSkillRun
+    ? `<span class="muted">${withSkillRun.grading.summary.passed}/${withSkillRun.grading.summary.total} with skill</span>`
+    : "";
+  const baselineLabel = withoutSkillRun
+    ? (() => {
+        const delta = withSkillRun ? withSkillRun.grading.summary.passed - withoutSkillRun.grading.summary.passed : undefined;
+        const deltaLabel = delta !== undefined ? ` <span class="muted">(\u0394 ${delta >= 0 ? "+" : ""}${delta})</span>` : "";
+        return `<span class="muted">\u00b7 ${withoutSkillRun.grading.summary.passed}/${withoutSkillRun.grading.summary.total} baseline</span>${deltaLabel}`;
+      })()
+    : "";
+  const regressionBadge = isRegression ? `<span class="regression-flag">\u2691 baseline tied/won</span>` : "";
+
   return `
     <details class="eval ${cls}" id="${anchorId}">
       <summary>
         <span class="eval-status">${allPassed ? "\u2713" : "\u2717"}</span>
         <span class="eval-name" title="${escapeHtml(ev.slug)}">${escapeHtml(humanizeEvalName(ev.slug))}</span>
-        <span class="muted">${passedAssertions}/${totalAssertions} assertions</span>
+        ${withSkillLabel}
+        ${baselineLabel}
+        ${regressionBadge}
       </summary>
       <div class="eval-body">
         <details class="prompt"><summary>user prompt</summary><pre>${escapeHtml(userPrompt)}</pre></details>
@@ -428,6 +477,8 @@ const STYLES = `
     --ok-bg: #dafbe1;
     --warn-bg: #fff8c5;
     --bad-bg: #ffebe9;
+    --flag: #8250df;
+    --flag-bg: #fbefff;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
@@ -441,6 +492,8 @@ const STYLES = `
   header.hero .stat .value { display: block; font-size: 22px; font-weight: 600; margin-top: 2px; }
   header.hero .stat.ok .value { color: var(--ok); }
   header.hero .stat.bad .value { color: var(--bad); }
+  header.hero .stat.flag .value { color: var(--flag); }
+  header.hero .totals-caption { margin-top: 10px; }
   header.hero .layout-switch { position: relative; display: inline-flex; margin-top: 14px; padding: 3px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 999px; }
   header.hero .layout-switch::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform 0.2s ease; z-index: 0; }
   header.hero .layout-switch:has(input[value="stacked"]:checked)::before { transform: translateX(100%); }
@@ -455,6 +508,9 @@ const STYLES = `
   table.summary th, table.summary td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; }
   table.summary th { background: var(--bg-alt); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   table.summary td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.summary td.delta-cell.ok { color: var(--ok); }
+  table.summary td.delta-cell.bad { color: var(--bad); }
+  table.summary td.delta-cell.muted { color: var(--muted); }
   table.summary tr.skill-row.bad { background: var(--bad-bg); }
   table.summary tr.skill-row.warn { background: var(--warn-bg); }
   table.summary tr.skill-row.ok td { background: transparent; }
@@ -496,6 +552,7 @@ const STYLES = `
   .skill-invoked { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
   .skill-invoked.ok { background: var(--ok-bg); color: var(--ok); }
   .skill-invoked.bad { background: var(--bad-bg); color: var(--bad); }
+  .regression-flag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; background: var(--flag-bg); color: var(--flag); }
   .eval-body details > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
   .eval-body details[open] > summary { color: var(--fg); }
   .eval-body pre { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; }
@@ -526,6 +583,11 @@ export function generateReport(args: GenerateReportArgs): GenerateReportResult {
   const totalPassed = skills.reduce((sum, s) => sum + s.totals.passed, 0);
   const totalFailed = totalAssertions - totalPassed;
   const overallRate = totalAssertions === 0 ? 1 : totalPassed / totalAssertions;
+  const totalWithoutPassed = skills.reduce((sum, s) => sum + s.totals.withoutPassed, 0);
+  const totalWithoutTotal = skills.reduce((sum, s) => sum + s.totals.withoutTotal, 0);
+  const totalRegressions = skills.reduce((sum, s) => sum + s.totals.regressions, 0);
+  const hasBaseline = totalWithoutTotal > 0;
+  const overallWithoutRate = totalWithoutTotal === 0 ? 1 : totalWithoutPassed / totalWithoutTotal;
   const generatedAt = new Date();
 
   const title = args.title ?? "Agent Skills Eval report";
@@ -545,6 +607,7 @@ export function generateReport(args: GenerateReportArgs): GenerateReportResult {
                 <th class="num">Passed</th>
                 <th class="num">Pass rate</th>
                 <th></th>
+                <th class="num">Δ vs baseline</th>
                 <th class="num">Avg time</th>
                 <th class="num">Avg tokens</th>
               </tr>
@@ -578,7 +641,17 @@ export function generateReport(args: GenerateReportArgs): GenerateReportResult {
       <div class="stat ok"><span class="label">passed</span><span class="value">${totalPassed}</span></div>
       <div class="stat ${totalFailed > 0 ? "bad" : ""}"><span class="label">failed</span><span class="value">${totalFailed}</span></div>
       <div class="stat ${rateClass(overallRate)}"><span class="label">pass rate</span><span class="value">${pct(overallRate)}</span></div>
+      ${
+        hasBaseline
+          ? `<div class="stat ${totalRegressions > 0 ? "flag" : ""}"><span class="label">regressions</span><span class="value">${totalRegressions}</span></div>`
+          : ""
+      }
     </div>
+    ${
+      hasBaseline
+        ? `<div class="totals-caption muted">with_skill numbers above · without skill: ${totalWithoutPassed}/${totalWithoutTotal} passed · ${pct(overallWithoutRate)} pass rate</div>`
+        : ""
+    }
     ${
       skills.length === 0
         ? ""
