@@ -385,7 +385,7 @@ function renderEval(ev: ReportEval, skillName: string, skillSlug: string): strin
       </summary>
       <div class="eval-body">
         <details class="prompt"><summary>user prompt</summary><pre>${escapeHtml(userPrompt)}</pre></details>
-        ${ev.modes.map((run) => renderRun(run, skillName)).join("\n")}
+        <div class="runs">${ev.modes.map((run) => renderRun(run, skillName)).join("\n")}</div>
       </div>
     </details>
   `;
@@ -441,6 +441,13 @@ const STYLES = `
   header.hero .stat .value { display: block; font-size: 22px; font-weight: 600; margin-top: 2px; }
   header.hero .stat.ok .value { color: var(--ok); }
   header.hero .stat.bad .value { color: var(--bad); }
+  header.hero .layout-switch { position: relative; display: inline-flex; margin-top: 14px; padding: 3px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 999px; }
+  header.hero .layout-switch::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform 0.2s ease; z-index: 0; }
+  header.hero .layout-switch:has(input[value="stacked"]:checked)::before { transform: translateX(100%); }
+  header.hero .layout-switch .seg { position: relative; z-index: 1; flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 16px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; white-space: nowrap; user-select: none; transition: color 0.15s ease; }
+  header.hero .layout-switch .seg:has(input:checked) { color: var(--fg); }
+  header.hero .layout-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  header.hero .layout-switch input:focus-visible + span { outline: 2px solid #0969da; outline-offset: 2px; border-radius: 4px; }
   main { padding: 24px 32px; max-width: 1200px; margin: 0 auto; }
   h2 { margin: 0 0 4px; font-size: 18px; }
   .muted { color: var(--muted); font-size: 12px; }
@@ -475,7 +482,9 @@ const STYLES = `
   details.eval.bad .eval-status { color: var(--bad); }
   details.eval.ok .eval-status { color: var(--ok); }
   .eval-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
-  .run { padding: 12px 14px; border-radius: 6px; border: 1px solid var(--border); }
+  .runs { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; align-items: start; }
+  body:has(input[name="run-layout"][value="stacked"]:checked) .runs { grid-template-columns: 1fr; }
+  .run { padding: 12px 14px; border-radius: 6px; border: 1px solid var(--border); min-width: 0; }
   .run.run-with_skill { background: #f1f8ff; border-color: #c8e1f8; }
   .run.run-without_skill { background: #fff8f0; border-color: #ffddb3; }
   .run-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -570,6 +579,14 @@ export function generateReport(args: GenerateReportArgs): GenerateReportResult {
       <div class="stat ${totalFailed > 0 ? "bad" : ""}"><span class="label">failed</span><span class="value">${totalFailed}</span></div>
       <div class="stat ${rateClass(overallRate)}"><span class="label">pass rate</span><span class="value">${pct(overallRate)}</span></div>
     </div>
+    ${
+      skills.length === 0
+        ? ""
+        : `<div class="layout-switch" role="radiogroup" aria-label="Run layout">
+      <label class="seg"><input type="radio" name="run-layout" value="side-by-side" checked><span>Side by side</span></label>
+      <label class="seg"><input type="radio" name="run-layout" value="stacked"><span>Stacked</span></label>
+    </div>`
+    }
   </header>
   <main>${body}</main>
   <script>
