@@ -340,7 +340,7 @@ function renderRun(run: ReportRun, skillName: string): string {
         ? `<span class="skill-invoked ok">skill picked up</span>`
         : `<span class="skill-invoked bad">skill not picked up</span>`;
   return `
-    <section class="run">
+    <section class="run run-${run.mode}">
       <header class="run-head">
         <span class="mode mode-${run.mode}">${modeLabel(run.mode)}</span>
         <span class="status ${statusCls}">${status}</span>
@@ -352,7 +352,6 @@ function renderRun(run: ReportRun, skillName: string): string {
           ? `<details class="prompt"><summary>system prompt</summary><pre>${escapeHtml(run.prompts.system)}</pre></details>`
           : ""
       }
-      <details class="prompt"><summary>user prompt</summary><pre>${escapeHtml(run.prompts?.user ?? "(unknown)")}</pre></details>
       <details class="output"><summary>output</summary><pre>${escapeHtml(run.output || "(empty)")}</pre></details>
       ${renderToolCallsPanel(run.toolCalls)}
       ${renderAssertionsTable(run.grading)}
@@ -373,6 +372,10 @@ function renderEval(ev: ReportEval, skillName: string, skillSlug: string): strin
   const allPassed = gradedRun !== undefined && gradedRun.grading.summary.failed === 0 && gradedRun.grading.summary.total > 0;
   const cls = allPassed ? "ok" : "bad";
   const anchorId = `${escapeHtml(skillSlug)}--${escapeHtml(ev.slug)}`;
+  // Same test case drives every mode, so the user prompt is identical across
+  // runs (unlike the judge prompt, which embeds each run's own output) \u2014
+  // show it once instead of once per run.
+  const userPrompt = ev.modes.find((m) => m.prompts?.user)?.prompts?.user ?? "(unknown)";
   return `
     <details class="eval ${cls}" id="${anchorId}">
       <summary>
@@ -380,7 +383,10 @@ function renderEval(ev: ReportEval, skillName: string, skillSlug: string): strin
         <span class="eval-name" title="${escapeHtml(ev.slug)}">${escapeHtml(humanizeEvalName(ev.slug))}</span>
         <span class="muted">${passedAssertions}/${totalAssertions} assertions</span>
       </summary>
-      <div class="eval-body">${ev.modes.map((run) => renderRun(run, skillName)).join("\n")}</div>
+      <div class="eval-body">
+        <details class="prompt"><summary>user prompt</summary><pre>${escapeHtml(userPrompt)}</pre></details>
+        ${ev.modes.map((run) => renderRun(run, skillName)).join("\n")}
+      </div>
     </details>
   `;
 }
@@ -468,9 +474,10 @@ const STYLES = `
   details.eval .eval-status { font-weight: 600; }
   details.eval.bad .eval-status { color: var(--bad); }
   details.eval.ok .eval-status { color: var(--ok); }
-  .eval-body { padding: 12px 16px; }
-  .run { padding: 12px 0; border-top: 1px dashed var(--border); }
-  .run:first-child { border-top: none; padding-top: 0; }
+  .eval-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .run { padding: 12px 14px; border-radius: 6px; border: 1px solid var(--border); }
+  .run.run-with_skill { background: #f1f8ff; border-color: #c8e1f8; }
+  .run.run-without_skill { background: #fff8f0; border-color: #ffddb3; }
   .run-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .mode { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
   .mode-with_skill { background: #ddf4ff; color: #0969da; }
@@ -480,9 +487,10 @@ const STYLES = `
   .skill-invoked { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
   .skill-invoked.ok { background: var(--ok-bg); color: var(--ok); }
   .skill-invoked.bad { background: var(--bad-bg); color: var(--bad); }
-  .run details > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
-  .run details[open] > summary { color: var(--fg); }
-  .run pre { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; }
+  .eval-body details > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
+  .eval-body details[open] > summary { color: var(--fg); }
+  .eval-body pre { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; }
+  .eval-body > details.prompt { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; }
   table.assertions { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
   table.assertions th, table.assertions td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
   table.assertions th { background: var(--bg-alt); font-size: 11px; text-transform: uppercase; color: var(--muted); }
