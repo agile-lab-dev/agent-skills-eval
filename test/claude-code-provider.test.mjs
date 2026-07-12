@@ -12,9 +12,15 @@ function provider(options = {}) {
   return new ClaudeCodeProvider({ model: "fake-model", claudeBinary: FAKE_BINARY, ...options });
 }
 
-test("ClaudeCodeProvider capabilities: no attachments/systemRole/toolCalls, shared install dir", () => {
+test("ClaudeCodeProvider capabilities: no attachments/systemRole/toolCalls/params, shared install dir", () => {
   const p = provider();
-  assert.deepEqual(p.capabilities, { systemRole: false, attachments: false, toolCalls: false, sharedInstallDir: true });
+  assert.deepEqual(p.capabilities, {
+    systemRole: false,
+    attachments: false,
+    toolCalls: false,
+    sharedInstallDir: true,
+    params: false,
+  });
 });
 
 test("ClaudeCodeProvider constructor throws when model is missing", () => {

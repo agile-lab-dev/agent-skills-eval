@@ -204,6 +204,15 @@ export async function evaluateSkills(args: EvaluateSkillsArgs): Promise<Evaluate
     );
   }
 
+  // Providers such as OpencodeProvider/ClaudeCodeProvider route calls through
+  // a subprocess CLI rather than a chat-completions API, so there's no
+  // channel to carry per-call inference params. Warn once so a caller relying
+  // on e.g. `temperature: 0` for reproducibility isn't silently ignored
+  // (see README caveats).
+  const supportsTargetParams = args.target.provider.capabilities?.params !== false;
+  const supportsJudgeParams = args.judge.provider.capabilities?.params !== false;
+  let warnedParams = false;
+
   // ─── Phase 1: sequential discovery prep ───────────────────────────────────
   // Allocate skillDir + write meta.json + emit suite-start in discovery order
   // so the start-of-run banner is stable run-to-run regardless of pool size.
@@ -220,6 +229,21 @@ export async function evaluateSkills(args: EvaluateSkillsArgs): Promise<Evaluate
         "warning: tool_assertions are not supported by the current provider and will always grade against an empty tool-call list (e.g. --run-mode opencode or --run-mode claude-code) — see README \"opencode run mode\"/\"claude-code run mode\" caveats.\n"
       );
       warnedToolAssertions = true;
+    }
+    const hasNonEmpty = (p?: Record<string, unknown>) => Boolean(p && Object.keys(p).length > 0);
+    const targetParamsDropped =
+      !supportsTargetParams &&
+      (hasNonEmpty(args.targetParams) ||
+        hasNonEmpty(skill.defaults?.target?.params) ||
+        skill.evals.some((e) => hasNonEmpty(e.params)));
+    const judgeParamsDropped =
+      !supportsJudgeParams &&
+      (hasNonEmpty(args.judgeParams) || hasNonEmpty(skill.defaults?.judge?.params));
+    if (!warnedParams && (targetParamsDropped || judgeParamsDropped)) {
+      process.stderr.write(
+        "warning: targetParams/judgeParams (e.g. temperature, top_p) are not supported by the current provider and will be silently ignored (e.g. --run-mode opencode or --run-mode claude-code) — see README \"opencode run mode\"/\"claude-code run mode\" caveats.\n"
+      );
+      warnedParams = true;
     }
     const slug = slugify(skill.name);
     const skillDir =

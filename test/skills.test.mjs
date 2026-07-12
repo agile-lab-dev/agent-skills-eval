@@ -57,11 +57,26 @@ function provider(output, extra = {}) {
   };
 }
 
-function judgeProvider(passed = true) {
+function judgeProvider(passed = true, extra = {}) {
   return provider(JSON.stringify({
     assertion_results: [{ text: "placeholder", passed, evidence: passed ? "Output contains the required phrase." : "Missing required phrase." }],
     summary: { passed: passed ? 1 : 0, failed: passed ? 0 : 1, total: 1, pass_rate: passed ? 1 : 0 }
-  }));
+  }), extra);
+}
+
+async function captureStderr(fn) {
+  const original = process.stderr.write.bind(process.stderr);
+  const writes = [];
+  process.stderr.write = (chunk) => {
+    writes.push(String(chunk));
+    return true;
+  };
+  try {
+    await fn();
+  } finally {
+    process.stderr.write = original;
+  }
+  return writes;
 }
 
 test("loadSkill reads spec files and safe attachment states", () => {
@@ -987,4 +1002,93 @@ test("generateReport does not flag a regression when the with_skill run has zero
   const result = generateReport({ workspace });
   const html = readFileSync(result.reportPath, "utf8");
   assert.doesNotMatch(html, /baseline tied\/won/);
+});
+
+const PARAMS_WARNING = /targetParams\/judgeParams .* are not supported/;
+
+test("evaluateSkills warns once when targetParams are dropped by a params-incapable provider, across multiple skills", async () => {
+  const root = tempRoot();
+  writeSkill(root, "skill-a");
+  writeSkill(root, "skill-b");
+  const workspace = path.join(root, "workspace");
+
+  const writes = await captureStderr(() =>
+    evaluateSkills({
+      root,
+      workspace,
+      report: false,
+      targetParams: { temperature: 0 },
+      target: { model: "target", provider: provider("Top revenue months: Jan", { capabilities: { params: false } }) },
+      judge: { model: "judge", provider: judgeProvider(true) },
+    })
+  );
+
+  assert.equal(writes.filter((w) => PARAMS_WARNING.test(w)).length, 1);
+});
+
+test("evaluateSkills emits no params warning when no params are configured anywhere", async () => {
+  const root = tempRoot();
+  writeSkill(root);
+  const workspace = path.join(root, "workspace");
+
+  const writes = await captureStderr(() =>
+    evaluateSkills({
+      root,
+      workspace,
+      report: false,
+      target: { model: "target", provider: provider("Top revenue months: Jan", { capabilities: { params: false } }) },
+      judge: { model: "judge", provider: judgeProvider(true, { capabilities: { params: false } }) },
+    })
+  );
+
+  assert.ok(!writes.some((w) => PARAMS_WARNING.test(w)));
+});
+
+test("evaluateSkills emits no params warning when the provider supports params (capabilities.params unset)", async () => {
+  const root = tempRoot();
+  writeSkill(root);
+  const workspace = path.join(root, "workspace");
+
+  const writes = await captureStderr(() =>
+    evaluateSkills({
+      root,
+      workspace,
+      report: false,
+      targetParams: { temperature: 0 },
+      judgeParams: { temperature: 0 },
+      target: { model: "target", provider: provider("Top revenue months: Jan") },
+      judge: { model: "judge", provider: judgeProvider(true) },
+    })
+  );
+
+  assert.ok(!writes.some((w) => PARAMS_WARNING.test(w)));
+});
+
+test("evaluateSkills warns when only target params or only judge params are dropped", async () => {
+  const root = tempRoot();
+  writeSkill(root);
+
+  const targetOnlyWrites = await captureStderr(() =>
+    evaluateSkills({
+      root,
+      workspace: path.join(root, "workspace-target-only"),
+      report: false,
+      targetParams: { temperature: 0 },
+      target: { model: "target", provider: provider("Top revenue months: Jan", { capabilities: { params: false } }) },
+      judge: { model: "judge", provider: judgeProvider(true) },
+    })
+  );
+  assert.equal(targetOnlyWrites.filter((w) => PARAMS_WARNING.test(w)).length, 1);
+
+  const judgeOnlyWrites = await captureStderr(() =>
+    evaluateSkills({
+      root,
+      workspace: path.join(root, "workspace-judge-only"),
+      report: false,
+      judgeParams: { temperature: 0 },
+      target: { model: "target", provider: provider("Top revenue months: Jan") },
+      judge: { model: "judge", provider: judgeProvider(true, { capabilities: { params: false } }) },
+    })
+  );
+  assert.equal(judgeOnlyWrites.filter((w) => PARAMS_WARNING.test(w)).length, 1);
 });

@@ -10,9 +10,15 @@ function provider(baseUrl, options = {}) {
   return new OpencodeProvider({ model: "fake/model", baseUrl, ...options });
 }
 
-test("OpencodeProvider capabilities: no attachments/systemRole/toolCalls, shared install dir", () => {
+test("OpencodeProvider capabilities: no attachments/systemRole/toolCalls/params, shared install dir", () => {
   const p = provider("http://127.0.0.1:0");
-  assert.deepEqual(p.capabilities, { systemRole: false, attachments: false, toolCalls: false, sharedInstallDir: true });
+  assert.deepEqual(p.capabilities, {
+    systemRole: false,
+    attachments: false,
+    toolCalls: false,
+    sharedInstallDir: true,
+    params: false,
+  });
 });
 
 test("OpencodeProvider constructor throws when model is missing", () => {

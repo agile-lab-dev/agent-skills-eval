@@ -12,6 +12,7 @@ export interface ProviderCapabilities {
    * will race (see OpencodeProvider/ClaudeCodeProvider skillInstallDir).
    */
   sharedInstallDir?: boolean;
+  params?: boolean;
 }
 
 export interface ToolFunctionDef {

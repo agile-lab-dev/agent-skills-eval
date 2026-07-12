@@ -158,7 +158,13 @@ function parseOutcome(stdout: string): RunOutcome {
  * writes output files into `dir` itself).
  */
 export class ClaudeCodeProvider implements Provider {
-  readonly capabilities = { systemRole: false, attachments: false, toolCalls: false, sharedInstallDir: true };
+  readonly capabilities = {
+    systemRole: false,
+    attachments: false,
+    toolCalls: false,
+    sharedInstallDir: true,
+    params: false,
+  };
   readonly name: string;
   readonly model: string;
   private agent?: string;
