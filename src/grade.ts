@@ -2,18 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { Provider } from "./provider.js";
 import type { ProviderResult } from "./provider.js";
-import type { AttachedFile, ToolAssertion, ToolCall } from "./types.js";
-
-export interface AssertionResult {
-  text: string;
-  passed: boolean;
-  evidence: string;
-}
-
-export interface GradingJson {
-  assertion_results: AssertionResult[];
-  summary: { passed: number; failed: number; total: number; pass_rate: number | null };
-}
+import type { AssertionResult, AttachedFile, GradingJson, ToolAssertion, ToolCall } from "./types.js";
 
 export interface GradeOutputsArgs {
   modelOutput: string;

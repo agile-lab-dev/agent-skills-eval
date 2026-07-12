@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type {
+  AggStats,
   BenchmarkJson,
   GradingJson,
   RunMode,
@@ -28,12 +29,6 @@ export interface RunPrompts {
   tools?: ToolDef[];
   /** Tool selection control sent with the request. */
   tool_choice?: ToolChoice;
-}
-
-export interface AggStats {
-  pass_rate: { mean: number; stddev: number };
-  time_seconds: { mean: number; stddev: number };
-  tokens: { mean: number; stddev: number };
 }
 
 export interface RunStats {
