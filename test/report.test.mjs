@@ -152,3 +152,101 @@ test("generateReport renders a run's response.txt output — guards writer/reade
     "report HTML should contain the run's response.txt output text",
   );
 });
+
+/** Builds a minimal fake workspace: one skill dir with meta.json + benchmark.json,
+ * one eval-x/with_skill/ dir with grading.json, timing.json, and outputs/response.txt. */
+function writeFixtureWorkspace(workspace, { outputText = "short output", toolCalls } = {}) {
+  const skillDir = path.join(workspace, "my-skill");
+  const runDir = path.join(skillDir, "eval-x", "with_skill");
+  mkdirSync(path.join(runDir, "outputs"), { recursive: true });
+
+  writeFileSync(
+    path.join(skillDir, "meta.json"),
+    JSON.stringify({ name: "My Skill", slug: "my-skill", relPath: "my-skill" }),
+  );
+  writeFileSync(
+    path.join(skillDir, "benchmark.json"),
+    JSON.stringify({
+      run_summary: {
+        with_skill: {
+          pass_rate: { mean: 1, stddev: 0 },
+          time_seconds: { mean: 1, stddev: 0 },
+          tokens: { mean: 1, stddev: 0 },
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    path.join(runDir, "grading.json"),
+    JSON.stringify({
+      assertion_results: [{ text: "ok", passed: true, evidence: "yes" }],
+      summary: { passed: 1, failed: 0, total: 1, pass_rate: 1 },
+    }),
+  );
+  writeFileSync(path.join(runDir, "timing.json"), JSON.stringify({ total_tokens: 10, duration_ms: 100 }));
+  writeFileSync(path.join(runDir, "outputs", "response.txt"), outputText);
+  if (toolCalls) {
+    writeFileSync(path.join(runDir, "tool_calls.json"), JSON.stringify(toolCalls));
+  }
+  return { skillDir, runDir };
+}
+
+test("generateReport renders output under the cap verbatim, with no truncation note", () => {
+  const root = tempRoot();
+  const workspace = path.join(root, "workspace");
+  const outputText = "a".repeat(1000);
+  writeFixtureWorkspace(workspace, { outputText });
+  const result = generateReport({ workspace });
+  const html = readFileSync(result.reportPath, "utf-8");
+  assert.ok(!html.includes('class="truncated-note"'));
+  assert.ok(html.includes(outputText));
+});
+
+test("generateReport truncates large output with a note and a working relative link", () => {
+  const root = tempRoot();
+  const workspace = path.join(root, "workspace");
+  const bigOutput = "x".repeat(50_000);
+  writeFixtureWorkspace(workspace, { outputText: bigOutput });
+  const result = generateReport({ workspace });
+  const html = readFileSync(result.reportPath, "utf-8");
+
+  assert.ok(html.includes('class="truncated-note"'));
+  assert.ok(html.includes('href="../my-skill/eval-x/with_skill/outputs/response.txt"'));
+  assert.ok(!html.includes(bigOutput), "full 50KB blob should not be embedded verbatim");
+});
+
+test("generateReport truncates an oversized tool-call's arguments without hiding other calls", () => {
+  const root = tempRoot();
+  const workspace = path.join(root, "workspace");
+  const bigArgs = JSON.stringify({ content: "y".repeat(50_000) });
+  writeFixtureWorkspace(workspace, {
+    outputText: "short output",
+    toolCalls: [
+      { type: "function", function: { name: "write_file", arguments: bigArgs } },
+      { type: "function", function: { name: "small_call", arguments: JSON.stringify({ a: 1 }) } },
+    ],
+  });
+  const result = generateReport({ workspace });
+  const html = readFileSync(result.reportPath, "utf-8");
+
+  assert.ok(html.includes('class="truncated-note"'));
+  assert.ok(html.includes('href="../my-skill/eval-x/with_skill/tool_calls.json"'));
+  assert.ok(html.includes("small_call"));
+  assert.ok(html.includes(JSON.stringify({ a: 1 }).replace(/"/g, "&quot;")), "small call's untruncated args should render fully");
+  assert.ok(!html.includes("y".repeat(50_000)), "large call's args should be capped");
+});
+
+test("generateReport never mutates the on-disk response.txt", () => {
+  const root = tempRoot();
+  const workspace = path.join(root, "workspace");
+  const bigOutput = "z".repeat(50_000);
+  const { runDir } = writeFixtureWorkspace(workspace, { outputText: bigOutput });
+  const responsePath = path.join(runDir, "outputs", "response.txt");
+  const before = readFileSync(responsePath, "utf-8");
+
+  generateReport({ workspace });
+
+  const after = readFileSync(responsePath, "utf-8");
+  assert.equal(before, after);
+  assert.equal(after.length, 50_000);
+});

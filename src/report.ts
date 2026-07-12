@@ -37,6 +37,13 @@ import {
   timingJsonPath,
   toolCallsJsonPath,
 } from "./artifact-layout.js";
+import { toPosixPath } from "./fs-utils.js";
+
+/** Cap on how much of a run's output / a tool-call's arguments gets embedded
+ * verbatim in the HTML report. Full artifacts are always left untouched on
+ * disk; only the embedded copy is truncated, with a link back to the source
+ * file. See `truncateForEmbed`. */
+const EMBED_CAP = 20_000;
 
 export interface GenerateReportArgs {
   /** Workspace directory that contains per-skill subfolders. */
@@ -66,6 +73,8 @@ interface ReportRunOk {
   timing: TimingJson;
   prompts?: RunPromptsJson;
   toolCalls?: ToolCall[];
+  /** Absolute path to this run's directory on disk (contains `outputs/`, `tool_calls.json`, etc.), used to link back to the full artifact when the embedded copy is truncated. */
+  runDir: string;
   error?: undefined;
 }
 
@@ -170,7 +179,7 @@ function collectSkill(skillDir: string): ReportSkill | undefined {
       const prompts = readJson<RunPromptsJson>(promptsJsonPath(runDir));
       const toolCalls = readJson<ToolCall[]>(toolCallsJsonPath(runDir));
       const output = readText(responseTxtPath(runDir));
-      modes.push({ mode, output, grading, timing, prompts, toolCalls });
+      modes.push({ mode, output, grading, timing, prompts, toolCalls, runDir });
 
       if (mode === "with_skill") {
         passed += grading.summary.passed;
@@ -259,6 +268,32 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Renders `text` as an escaped `<pre>` block for embedding in the report,
+ * truncated to `cap` chars with a note + relative link back to the full
+ * artifact on disk when it exceeds the cap. The on-disk file itself is never
+ * touched — only the embedded copy is bounded, so the report stays readable
+ * even when a captured transcript is huge (e.g. an agentic tool-call log).
+ *
+ * Truncates the raw string first, then escapes (not the other way around) so
+ * truncation can't split an HTML entity and produce broken markup.
+ */
+function truncateForEmbed(text: string, cap: number, link: { href: string; label: string }, preClass?: string): string {
+  const raw = text || "(empty)";
+  const preTag = preClass ? `<pre class="${preClass}">` : "<pre>";
+  if (raw.length <= cap) {
+    return `${preTag}${escapeHtml(raw)}</pre>`;
+  }
+  const head = raw.slice(0, cap);
+  const capKb = (cap / 1000).toFixed(0);
+  const fullKb = (Buffer.byteLength(raw, "utf-8") / 1000).toFixed(1);
+  return `${preTag}${escapeHtml(head)}</pre>
+    <p class="truncated-note">
+      Output truncated at ${capKb} KB (full output is ${fullKb} KB).
+      <a href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>
+    </p>`;
 }
 
 function pct(value: number): string {
@@ -351,8 +386,9 @@ function renderAssertionsTable(grading: GradingJson): string {
   return `<div class="table-scroll"><table class="assertions"><thead><tr><th>#</th><th></th><th>Assertion</th><th>Evidence</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-function renderToolCallsPanel(calls: ToolCall[] | undefined): string {
+function renderToolCallsPanel(calls: ToolCall[] | undefined, runRelDir: string): string {
   if (!calls || calls.length === 0) return "";
+  const toolCallsLink = { href: toPosixPath(path.join(runRelDir, "tool_calls.json")), label: "tool_calls.json" };
   const rows = calls
     .map((c, i) => {
       const args = c.parsedArguments !== undefined
@@ -362,7 +398,7 @@ function renderToolCallsPanel(calls: ToolCall[] | undefined): string {
         <tr>
           <td class="num">${i + 1}</td>
           <td class="tool-name">${escapeHtml(c.function.name)}</td>
-          <td><pre class="tool-args">${escapeHtml(args)}</pre></td>
+          <td>${truncateForEmbed(args, EMBED_CAP, toolCallsLink, "tool-args")}</td>
         </tr>`;
     })
     .join("\n");
@@ -389,7 +425,7 @@ function skillWasInvoked(run: ReportRun, skillName: string): boolean | undefined
   });
 }
 
-function renderRun(run: ReportRun, skillName: string): string {
+function renderRun(run: ReportRun, skillName: string, runRelPath: string): string {
   if (isErrorRun(run)) {
     return `
       <section class="run run-${run.mode}">
@@ -425,8 +461,8 @@ function renderRun(run: ReportRun, skillName: string): string {
           ? `<details class="prompt"><summary>system prompt</summary><pre>${escapeHtml(run.prompts.system)}</pre></details>`
           : ""
       }
-      <details class="output"><summary>output</summary><pre>${escapeHtml(run.output || "(empty)")}</pre></details>
-      ${renderToolCallsPanel(run.toolCalls)}
+      <details class="output"><summary>output</summary>${truncateForEmbed(run.output, EMBED_CAP, { href: toPosixPath(path.join(runRelPath, "outputs", "response.txt")), label: "outputs/response.txt" })}</details>
+      ${renderToolCallsPanel(run.toolCalls, runRelPath)}
       ${renderAssertionsTable(run.grading)}
       ${
         run.prompts?.judgePrompt
@@ -445,7 +481,7 @@ function findUserPrompt(modes: ReportRun[]): string | undefined {
   return undefined;
 }
 
-function renderEval(ev: ReportEval, skillName: string, skillSlug: string): string {
+function renderEval(ev: ReportEval, skillName: string, skillSlug: string, outputDir: string): string {
   const withSkillRun = ev.modes.find((m) => m.mode === "with_skill");
   const withoutSkillRun = ev.modes.find((m) => m.mode === "without_skill");
   const hasError = ev.modes.some(isErrorRun);
@@ -498,13 +534,13 @@ function renderEval(ev: ReportEval, skillName: string, skillSlug: string): strin
       </summary>
       <div class="eval-body">
         <details class="prompt"><summary>user prompt</summary><pre>${escapeHtml(userPrompt)}</pre></details>
-        <div class="runs">${ev.modes.map((run) => renderRun(run, skillName)).join("\n")}</div>
+        <div class="runs">${ev.modes.map((run) => renderRun(run, skillName, isErrorRun(run) ? "" : path.relative(outputDir, run.runDir))).join("\n")}</div>
       </div>
     </details>
   `;
 }
 
-function renderSkillSection(skill: ReportSkill, tokenCaveat: boolean): string {
+function renderSkillSection(skill: ReportSkill, tokenCaveat: boolean, outputDir: string): string {
   const t = skill.totals;
   const benchmarkBlock = skill.benchmark?.run_summary.delta
     ? (() => {
@@ -526,7 +562,7 @@ function renderSkillSection(skill: ReportSkill, tokenCaveat: boolean): string {
         <div class="muted">${t.passed}/${t.total} assertions · ${skill.evals.length} evals · ${ms(t.avgDurationMs)} avg · ${Math.round(t.avgTokens)} tokens avg</div>
         ${benchmarkBlock}
       </header>
-      <div class="evals">${skill.evals.map((ev) => renderEval(ev, skill.meta.name, skill.meta.slug)).join("\n")}</div>
+      <div class="evals">${skill.evals.map((ev) => renderEval(ev, skill.meta.name, skill.meta.slug, outputDir)).join("\n")}</div>
     </article>
   `;
 }
@@ -647,6 +683,8 @@ const STYLES = `
   pre.tool-args { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.4; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto; }
   .empty { padding: 60px 20px; text-align: center; color: var(--muted); }
   .table-scroll { overflow-x: auto; }
+  .truncated-note { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .truncated-note a { color: #0969da; text-decoration: underline; }
 `;
 
 export function generateReport(args: GenerateReportArgs): GenerateReportResult {
@@ -671,8 +709,9 @@ export function generateReport(args: GenerateReportArgs): GenerateReportResult {
   const tokenCaveat = hasBaseline && args.provider !== undefined && overheadProviders.has(args.provider);
 
   const title = args.title ?? "Agent Skills Eval report";
+  const outputDir = args.output ?? path.join(args.workspace, "report");
   const summaryRows = skills.map(renderSkillRow).join("\n");
-  const detailSections = skills.map((skill) => renderSkillSection(skill, tokenCaveat)).join("\n");
+  const detailSections = skills.map((skill) => renderSkillSection(skill, tokenCaveat, outputDir)).join("\n");
 
   const body =
     skills.length === 0
@@ -760,7 +799,6 @@ export function generateReport(args: GenerateReportArgs): GenerateReportResult {
 </body>
 </html>`;
 
-  const outputDir = args.output ?? path.join(args.workspace, "report");
   mkdirSync(outputDir, { recursive: true });
   const reportPath = path.join(outputDir, "index.html");
   writeFileSync(reportPath, html, "utf-8");
