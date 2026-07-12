@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import path from "node:path";
+import { appendBounded } from "./bounded-buffer.js";
 import { cleanupSkillInstall, installSkillSymlinks, safeResolve } from "./fs-utils.js";
 import type { Provider, ProviderResult, SkillSource, ToolCall } from "./provider.js";
 import { registerShutdownHook } from "./shutdown.js";
@@ -36,6 +37,10 @@ interface RunOutcome {
 
 /** Grace period between SIGTERM and SIGKILL when a run exceeds `timeoutMs`. */
 const KILL_GRACE_MS = 3000;
+/** Cap on buffered stdout (the NDJSON transcript actually parsed for output) — generous since it's the real signal. */
+const MAX_STDOUT_BYTES = 20 * 1024 * 1024;
+/** Cap on buffered stderr — only ever used as a short fallback diagnostic string. */
+const MAX_STDERR_BYTES = 1 * 1024 * 1024;
 
 interface ClaudeToolUseBlock {
   type: "tool_use";
@@ -125,7 +130,12 @@ function parseOutcome(stdout: string): RunOutcome {
  * Wraps the `claude` CLI's non-interactive batch mode (`claude -p`) as a
  * `Provider`. Each `complete()` call spawns a fresh `claude` subprocess with
  * the prompt piped over stdin and `--output-format stream-json --verbose`,
- * waits for it to exit, and parses the buffered NDJSON transcript.
+ * waits for it to exit, and parses the buffered NDJSON transcript. stdout is
+ * capped at `MAX_STDOUT_BYTES` (stderr at `MAX_STDERR_BYTES`), dropping the
+ * oldest bytes first — see `appendBounded` — since a run can produce far
+ * more NDJSON than fits comfortably in memory over the full `timeoutMs`
+ * window; a truncated run surfaces `truncated: true` via `errorMessage`
+ * rather than silently under-reporting.
  *
  * Unlike opencode's HTTP server, `claude -p` runs the entire agentic turn —
  * including any subagent (`Task` tool) delegation — synchronously within one
@@ -288,6 +298,7 @@ export class ClaudeCodeProvider implements Provider {
 
       let stdout = "";
       let stderr = "";
+      let stdoutTruncated = false;
       let settled = false;
       let timedOut = false;
 
@@ -300,10 +311,12 @@ export class ClaudeCodeProvider implements Provider {
       timeoutTimer.unref();
 
       child.stdout?.on("data", (chunk) => {
-        stdout += String(chunk);
+        const appended = appendBounded(stdout, String(chunk), MAX_STDOUT_BYTES);
+        stdout = appended.value;
+        if (appended.truncated) stdoutTruncated = true;
       });
       child.stderr?.on("data", (chunk) => {
-        stderr += String(chunk);
+        stderr = appendBounded(stderr, String(chunk), MAX_STDERR_BYTES).value;
       });
 
       child.on("error", (err) => {
@@ -319,14 +332,31 @@ export class ClaudeCodeProvider implements Provider {
         settled = true;
         clearTimeout(timeoutTimer);
         unregisterShutdown();
+        const truncationNote = stdoutTruncated
+          ? `claude-code stdout exceeded ${MAX_STDOUT_BYTES}-byte cap and was truncated; tool-call count may be undercounted`
+          : undefined;
         if (timedOut) {
           const outcome = parseOutcome(stdout);
-          resolve({ ...outcome, errorMessage: `claude-code run timed out after ${this.timeoutMs}ms` });
+          const timeoutMessage = `claude-code run timed out after ${this.timeoutMs}ms`;
+          resolve({
+            ...outcome,
+            errorMessage: truncationNote ? `${timeoutMessage}; ${truncationNote}` : timeoutMessage,
+          });
           return;
         }
         const outcome = parseOutcome(stdout);
         if (!outcome.text && !outcome.errorMessage && stderr.trim()) {
-          resolve({ ...outcome, errorMessage: stderr.trim() });
+          resolve({
+            ...outcome,
+            errorMessage: truncationNote ? `${stderr.trim()}; ${truncationNote}` : stderr.trim(),
+          });
+          return;
+        }
+        if (truncationNote) {
+          resolve({
+            ...outcome,
+            errorMessage: outcome.errorMessage ? `${outcome.errorMessage}; ${truncationNote}` : truncationNote,
+          });
           return;
         }
         resolve(outcome);

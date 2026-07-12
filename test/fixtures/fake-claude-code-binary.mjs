@@ -6,6 +6,7 @@
 // test/fixtures/fake-opencode-server.mjs's approach for OpencodeProvider,
 // but faking a subprocess instead of an HTTP server.
 import { readFileSync, writeFileSync } from "node:fs";
+import { writeFiller } from "./write-filler.mjs";
 
 const args = process.argv.slice(2);
 const prompt = readFileSync(0, "utf-8");
@@ -48,7 +49,13 @@ function assistantToolUseEvent(name, input) {
 
 write({ type: "system", subtype: "init", model: flagValue("--model") ?? "fake-model" });
 
-if (prompt.includes("__FAKE_CLAUDE_HANG__")) {
+if (process.env.FAKE_CLAUDE_HUGE_OUTPUT === "1") {
+  // Emit >20MB of filler NDJSON lines (well past ClaudeCodeProvider's
+  // MAX_STDOUT_BYTES cap) before the real terminating `result` event, to
+  // exercise stdout truncation without losing the trailing event it needs.
+  writeFiller(process.stdout, `${JSON.stringify(assistantTextEvent("x".repeat(1000)))}\n`, 21 * 1024 * 1024);
+  write(resultEvent({ result: "FAKE_CLAUDE_OK_AFTER_HUGE_OUTPUT" }));
+} else if (prompt.includes("__FAKE_CLAUDE_HANG__")) {
   // Never emits a result and never exits on its own — installs no signal
   // handlers, so the default SIGTERM action (immediate termination) applies
   // when the caller's timeout fires.

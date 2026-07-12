@@ -83,6 +83,38 @@ test("OpencodeProvider.complete: when it spawns its own opencode server, capture
   }
 });
 
+test("OpencodeProvider.complete: an oversized server log is capped near MAX_LOG_BYTES but keeps the most recent lines", async () => {
+  const binDir = mkdtempSync(path.join(tmpdir(), "opencode-bin-"));
+  const fakeBinaryPath = path.resolve("test/fixtures/fake-opencode-binary.mjs");
+  const wrapperPath = path.join(binDir, "opencode");
+  writeFileSync(wrapperPath, `#!/bin/sh\nexec node ${JSON.stringify(fakeBinaryPath)} "$@"\n`);
+  chmodSync(wrapperPath, 0o755);
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  process.env.FAKE_OPENCODE_HUGE_LOG = "1";
+  try {
+    const p = new OpencodeProvider({ model: "fake/model", timeoutMs: 10_000 });
+    // Delegate-race scenario gives the fake binary's synchronous >10MB
+    // filler write time to finish before the run settles and the log is
+    // captured (same reasoning as the "captures the full ... log" test).
+    const result = await p.complete("__FAKE_OPENCODE_DELEGATE_RACE__");
+    assert.equal(result.error, undefined);
+    const log = result.outputFiles?.find((f) => f.path === "opencode-serve.log");
+    assert.ok(log, "expected an opencode-serve.log output file");
+    const MAX_LOG_BYTES = 10 * 1024 * 1024;
+    assert.ok(
+      Buffer.byteLength(log.content, "utf8") <= MAX_LOG_BYTES + 4096,
+      `expected capped log near the ${MAX_LOG_BYTES}-byte limit, got ${Buffer.byteLength(log.content, "utf8")}`
+    );
+    assert.match(log.content, /# TRUNCATED:/);
+    assert.match(log.content, /post-huge-log tail line/);
+  } finally {
+    process.env.PATH = originalPath;
+    delete process.env.FAKE_OPENCODE_HUGE_LOG;
+  }
+});
+
 test("OpencodeProvider.complete: server error resolves with error set, does not throw", async () => {
   const server = await createFakeOpencodeServer();
   try {

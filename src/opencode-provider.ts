@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import path from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk";
+import { appendBounded } from "./bounded-buffer.js";
 import { cleanupSkillInstall, installSkillSymlinks, safeResolve } from "./fs-utils.js";
 import type { Provider, ProviderResult, SkillSource, ToolCall } from "./provider.js";
 import { registerShutdownHook } from "./shutdown.js";
@@ -41,6 +42,8 @@ const MAX_POLL_ERROR_STREAK = 5;
 const SERVER_KILL_GRACE_MS = 3000;
 /** How long to wait for `opencode serve` to print its listening URL before giving up. */
 const SERVER_START_TIMEOUT_MS = 10_000;
+/** Cap on the buffered server startup+debug log (both in-memory and what lands in `opencode-serve.log`). */
+const MAX_LOG_BYTES = 10 * 1024 * 1024;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +54,7 @@ interface SpawnedServer {
   close(): void;
   /** Sends SIGTERM (escalating to SIGKILL after the grace period) and resolves once the child has actually exited, not just once the signal was sent. */
   closeAndWait(): Promise<void>;
-  /** Combined stdout+stderr of the child process so far, including everything logged after startup. */
+  /** Combined stdout+stderr of the child process so far, including everything logged after startup, capped at `MAX_LOG_BYTES` (oldest bytes dropped first — see `appendBounded`). */
   getLog(): string;
 }
 
@@ -106,7 +109,11 @@ function spawnOpencodeServer(options: {
     startTimer.unref();
 
     child.stdout?.on("data", (chunk) => {
-      output += String(chunk);
+      output = appendBounded(output, String(chunk), MAX_LOG_BYTES).value;
+      // Startup output is always far under MAX_LOG_BYTES in practice, so
+      // matching against the (already-capped) buffer here is safe —
+      // truncation only ever engages long after startup succeeds. Keep this
+      // ordering in mind if this code is ever refactored.
       if (settled) return;
       const match = output.match(/opencode server listening on\s+(https?:\/\/\S+)/);
       if (match) {
@@ -116,7 +123,7 @@ function spawnOpencodeServer(options: {
       }
     });
     child.stderr?.on("data", (chunk) => {
-      output += String(chunk);
+      output = appendBounded(output, String(chunk), MAX_LOG_BYTES).value;
     });
     child.on("exit", (code) => {
       clearTimeout(startTimer);
@@ -444,7 +451,7 @@ export class OpencodeProvider implements Provider {
     };
   }
 
-  /** Attaches the spawned server's combined stdout+stderr as a debug artifact, when we actually spawned one (not when talking to an external `baseUrl`). */
+  /** Attaches the spawned server's combined (and `MAX_LOG_BYTES`-capped) stdout+stderr as a debug artifact, when we actually spawned one (not when talking to an external `baseUrl`). */
   private withServerLog(result: ProviderResult, server: SpawnedServer | undefined): ProviderResult {
     if (!server) return result;
     return { ...result, outputFiles: [{ path: "opencode-serve.log", content: server.getLog() }] };

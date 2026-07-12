@@ -156,6 +156,21 @@ test("ClaudeCodeProvider.complete: forwards model/agent/auto/allowedTools/disall
   );
 });
 
+test("ClaudeCodeProvider.complete: an oversized stdout is truncated but the trailing result event still parses, with truncation surfaced", async () => {
+  const p = provider();
+  process.env.FAKE_CLAUDE_HUGE_OUTPUT = "1";
+  try {
+    const result = await p.complete("hello world");
+    assert.equal(result.output, "FAKE_CLAUDE_OK_AFTER_HUGE_OUTPUT");
+    assert.equal(result.inputTokens, 10);
+    assert.equal(result.outputTokens, 5);
+    assert.equal(result.costUsd, 0.0001);
+    assert.match(result.error, /truncat/i);
+  } finally {
+    delete process.env.FAKE_CLAUDE_HUGE_OUTPUT;
+  }
+});
+
 test("ClaudeCodeProvider.complete: prompt round-trips over stdin without mangling special characters", async () => {
   const p = provider();
   const payload = 'some `$(echo injected)` "quoted" text\nwith a newline';
