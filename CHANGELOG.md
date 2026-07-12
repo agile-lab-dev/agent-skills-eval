@@ -4,6 +4,40 @@ All notable changes to this project are documented here.
 
 ## 0.2.0
 
+### Added
+
+- **opencode run mode** (`--run-mode opencode`): route target/judge calls
+  through a local `opencode` server via `@opencode-ai/sdk` instead of calling
+  an OpenAI-compatible API directly. New flags: `--opencode-agent`,
+  `--opencode-dir`, `--opencode-auto`/`--no-opencode-auto`,
+  `--opencode-timeout`, `--opencode-judge-timeout` (and equivalent
+  `opencode.*` YAML config keys). Skills are loaded natively via opencode's
+  own `skill` tool by symlinking the skill directory into
+  `.opencode/skills/<name>/` for `with_skill` runs, rather than being injected
+  into the prompt.
+- **claude-code run mode** (`--run-mode claude-code`): route target/judge
+  calls through the `claude -p` non-interactive batch CLI instead of calling
+  an OpenAI-compatible API directly. New flags: `--claude-code-agent`,
+  `--claude-code-dir`, `--claude-code-auto`/`--no-claude-code-auto`,
+  `--claude-code-timeout`, `--claude-code-judge-timeout`,
+  `--claude-code-binary`, `--claude-code-allowed-tools`/
+  `--claude-code-disallowed-tools` (and equivalent `claudeCode.*` YAML config
+  keys). Skills are loaded natively by symlinking into
+  `.claude/skills/<name>/`, mirroring the opencode provider's approach.
+- HTML report: "skill picked up" / "skill not picked up" badge per run,
+  derived from whether the skill's tool was actually invoked during that run.
+- HTML report: a stacked/side-by-side layout toggle for comparing
+  `with_skill`/`without_skill` runs.
+- HTML report: runs are now tinted by mode (`with_skill` vs `without_skill`)
+  for faster visual scanning, and the (identical) user prompt is deduplicated
+  per eval instead of repeated per run.
+- `scripts/render-report.mjs`: standalone script to re-render `report.html`
+  from existing run artifacts without re-running evals.
+
+### Changed
+
+- HTML report markup/CSS reworked for readability and accessibility (e.g.
+  `role="radiogroup"`/`aria-label` on the new layout switch).
 - **Breaking type change**: `GradingJson.summary.pass_rate` and
   `EvaluateSkillsResult.skills[].passRate` are now `number | null`; `null` means no
   assertions were graded for that run/skill (previously reported as `1`, i.e. a
