@@ -1,9 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk";
-import { safeResolve } from "./fs-utils.js";
+import { cleanupSkillInstall, installSkillSymlinks, safeResolve } from "./fs-utils.js";
 import type { Provider, ProviderResult, SkillSource, ToolCall } from "./provider.js";
 import { registerShutdownHook } from "./shutdown.js";
 
@@ -350,23 +349,14 @@ export class OpencodeProvider implements Provider {
    */
   async prepareSkill(skill: SkillSource, mode: "with_skill" | "without_skill"): Promise<void> {
     const installDir = this.skillInstallDir(skill.name);
-    rmSync(installDir, { recursive: true, force: true });
+    cleanupSkillInstall(installDir);
     if (mode !== "with_skill") return;
-
-    mkdirSync(installDir, { recursive: true });
-    for (const entry of readdirSync(skill.dir, { withFileTypes: true })) {
-      if (entry.name === "evals") continue;
-      symlinkSync(
-        path.join(skill.dir, entry.name),
-        path.join(installDir, entry.name),
-        entry.isDirectory() ? "dir" : "file"
-      );
-    }
+    installSkillSymlinks(skill.dir, installDir);
   }
 
   /** Removes whatever `prepareSkill` installed for `skill`, regardless of mode. */
   async cleanupSkill(skill: SkillSource): Promise<void> {
-    rmSync(this.skillInstallDir(skill.name), { recursive: true, force: true });
+    cleanupSkillInstall(this.skillInstallDir(skill.name));
   }
 
   private skillInstallDir(name: string): string {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { AttachedFile } from "./types.js";
 
@@ -116,6 +116,28 @@ export function assertSafeSkillName(name: string, context: string): void {
 export function slugify(value: string, fallback = "item"): string {
   const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
   return slug || fallback;
+}
+
+/**
+ * Symlinks every entry of `skillDir` into `installDir` (creating `installDir`
+ * first), except `evals/`, which holds the answer key. Caller is responsible
+ * for clearing any previous install first (see `cleanupSkillInstall`).
+ */
+export function installSkillSymlinks(skillDir: string, installDir: string): void {
+  mkdirSync(installDir, { recursive: true });
+  for (const entry of readdirSync(skillDir, { withFileTypes: true })) {
+    if (entry.name === "evals") continue;
+    symlinkSync(
+      path.join(skillDir, entry.name),
+      path.join(installDir, entry.name),
+      entry.isDirectory() ? "dir" : "file"
+    );
+  }
+}
+
+/** Removes whatever `installSkillSymlinks` installed at `installDir`, if anything. */
+export function cleanupSkillInstall(installDir: string): void {
+  rmSync(installDir, { recursive: true, force: true });
 }
 
 export function walkFiles(root: string, predicate: (absolutePath: string) => boolean): string[] {
