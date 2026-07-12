@@ -18,7 +18,7 @@ from pathlib import Path
 from scripts.generate_report import generate_html
 from scripts.improve_description import improve_description
 from scripts.run_eval import find_project_root, run_eval
-from scripts.utils import parse_skill_md
+from scripts.utils import parse_skill_md, sanitize_name
 
 
 def split_eval_set(eval_set: list[dict], holdout: float, seed: int = 42) -> tuple[list[dict], list[dict]]:
@@ -271,7 +271,7 @@ def main():
     if args.report != "none":
         if args.report == "auto":
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            live_report_path = Path(tempfile.gettempdir()) / f"skill_description_report_{skill_path.name}_{timestamp}.html"
+            live_report_path = Path(tempfile.gettempdir()) / f"skill_description_report_{sanitize_name(skill_path.name)}_{timestamp}.html"
         else:
             live_report_path = Path(args.report)
         # Open the report immediately so the user can watch

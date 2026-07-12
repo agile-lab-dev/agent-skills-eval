@@ -1,7 +1,18 @@
 """Shared utilities for skill-creator scripts."""
 
+import re
 from pathlib import Path
 
+
+def sanitize_name(name: str, fallback: str = "skill") -> str:
+    """Restrict a name to filesystem-safe characters for use in path components.
+
+    Skill names originate from untrusted SKILL.md frontmatter, so this must be
+    applied before the value is used to build any filesystem path.
+    """
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+    cleaned = cleaned.strip("._-")
+    return cleaned or fallback
 
 
 def parse_skill_md(skill_path: Path) -> tuple[str, str, str]:

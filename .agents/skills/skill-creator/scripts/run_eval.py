@@ -16,7 +16,7 @@ import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from scripts.utils import parse_skill_md
+from scripts.utils import parse_skill_md, sanitize_name
 
 
 def find_project_root() -> Path:
@@ -30,6 +30,19 @@ def find_project_root() -> Path:
         if (parent / ".claude").is_dir():
             return parent
     return current
+
+
+def _ensure_within(path: Path, parent_dir: Path) -> Path:
+    """Resolve `path` and assert it stays inside `parent_dir`.
+
+    Defense in depth against path traversal: even if a bug reintroduces
+    unsanitized input into a path component, this refuses to touch anything
+    outside the intended directory rather than silently proceeding.
+    """
+    resolved = path.resolve()
+    if parent_dir.resolve() not in resolved.parents:
+        raise ValueError(f"Refusing to access path outside {parent_dir}: {resolved}")
+    return resolved
 
 
 def run_single_query(
@@ -49,7 +62,11 @@ def run_single_query(
     full assistant message, which only arrives after tool execution.
     """
     unique_id = uuid.uuid4().hex[:8]
-    clean_name = f"{skill_name}-skill-{unique_id}"
+    # skill_name comes from untrusted SKILL.md frontmatter; sanitize before it
+    # ever touches a filesystem path. The unsanitized skill_name is still used
+    # below for the human-facing command body text only.
+    safe_skill_name = sanitize_name(skill_name)
+    clean_name = f"{safe_skill_name}-skill-{unique_id}"
     project_commands_dir = Path(project_root) / ".claude" / "commands"
     command_file = project_commands_dir / f"{clean_name}.md"
 
@@ -65,6 +82,7 @@ def run_single_query(
             f"# {skill_name}\n\n"
             f"This skill handles: {skill_description}\n"
         )
+        _ensure_within(command_file, project_commands_dir)
         command_file.write_text(command_content)
 
         cmd = [
@@ -178,6 +196,7 @@ def run_single_query(
         return triggered
     finally:
         if command_file.exists():
+            _ensure_within(command_file, project_commands_dir)
             command_file.unlink()
 
 
