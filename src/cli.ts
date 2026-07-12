@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { loadConfigFile, type AgentSkillsEvalConfig } from "./config.js";
+import { loadConfigFile, resolveConfig, type CliOptions } from "./config.js";
 import { consoleReporter } from "./console-reporter.js";
 import { evaluateSkills } from "./evaluate-skills.js";
 import { jsonlReporter, type JsonlReporter } from "./jsonl-reporter.js";
@@ -10,60 +10,12 @@ import { ClaudeCodeProvider } from "./claude-code-provider.js";
 import type { Provider } from "./provider.js";
 import { installSignalHandlers, registerShutdownHook } from "./shutdown.js";
 
-interface CliOptions {
-  config?: string;
-  workspace?: string;
-  baseline?: boolean;
-  target?: string;
-  judge?: string;
-  baseUrl?: string;
-  apiKeyEnv?: string;
-  runMode?: "api" | "opencode" | "claude-code";
-  apiTimeout?: string;
-  apiJudgeTimeout?: string;
-  opencodeAgent?: string;
-  opencodeAuto?: boolean;
-  opencodeDir?: string;
-  opencodeTimeout?: string;
-  opencodeJudgeTimeout?: string;
-  claudeCodeAgent?: string;
-  claudeCodeAuto?: boolean;
-  claudeCodeDir?: string;
-  claudeCodeTimeout?: string;
-  claudeCodeJudgeTimeout?: string;
-  claudeCodeBinary?: string;
-  claudeCodeAllowedTools?: string[];
-  claudeCodeDisallowedTools?: string[];
-  include?: string[];
-  exclude?: string[];
-  concurrency?: string;
-  report?: boolean;
-  color?: boolean;
-  verbose?: boolean;
-  layout?: "iteration" | "flat";
-  strict?: boolean;
-  logFormat?: "pretty" | "jsonl" | "silent";
-  logFile?: string;
-  reportTitle?: string;
-  reportOutput?: string;
-}
-
 function list(value: string, previous: string[] = []): string[] {
   return [...previous, value];
 }
 
-function reportEnabled(report: AgentSkillsEvalConfig["report"]): boolean | undefined {
-  if (report === undefined) return undefined;
-  if (typeof report === "boolean") return report;
-  return report.enabled;
-}
-
-function reportTitle(report: AgentSkillsEvalConfig["report"]): string | undefined {
-  return typeof report === "object" && report ? report.title : undefined;
-}
-
-function reportOutput(report: AgentSkillsEvalConfig["report"]): string | undefined {
-  return typeof report === "object" && report ? report.output : undefined;
+function parseNumber(value: string): number {
+  return Number.parseInt(value, 10);
 }
 
 function requireApiCredentials(
@@ -92,37 +44,41 @@ async function main(): Promise<void> {
     .option("--base-url <url>", "OpenAI-compatible API base URL")
     .option("--api-key-env <name>", "Environment variable containing the API key")
     .option("--run-mode <mode>", "Execution mode: api (default), opencode, or claude-code")
-    .option("--api-timeout <ms>", "API request timeout in milliseconds (run-mode api)")
+    .option("--api-timeout <ms>", "API request timeout in milliseconds (run-mode api)", parseNumber)
     .option(
       "--api-judge-timeout <ms>",
-      "API judge/grader request timeout in milliseconds; defaults to --api-timeout"
+      "API judge/grader request timeout in milliseconds; defaults to --api-timeout",
+      parseNumber
     )
     .option("--opencode-agent <name>", "opencode --agent to use")
     .option("--opencode-auto", "Auto-approve opencode permissions (dangerous)")
     .option("--no-opencode-auto", "Disable opencode auto-approve, overriding config file")
     .option("--opencode-dir <path>", "Working directory for opencode runs")
-    .option("--opencode-timeout <ms>", "opencode subprocess timeout in milliseconds")
+    .option("--opencode-timeout <ms>", "opencode subprocess timeout in milliseconds", parseNumber)
     .option(
       "--opencode-judge-timeout <ms>",
-      "opencode judge/grader subprocess timeout in milliseconds; defaults to --opencode-timeout"
+      "opencode judge/grader subprocess timeout in milliseconds; defaults to --opencode-timeout",
+      parseNumber
     )
     .option("--claude-code-agent <name>", "claude --agent to use")
     .option("--claude-code-auto", "Auto-approve claude-code permissions via --dangerously-skip-permissions (dangerous)")
     .option("--no-claude-code-auto", "Disable claude-code auto-approve, overriding config file")
     .option("--claude-code-dir <path>", "Working directory for claude-code runs")
-    .option("--claude-code-timeout <ms>", "claude-code subprocess timeout in milliseconds")
+    .option("--claude-code-timeout <ms>", "claude-code subprocess timeout in milliseconds", parseNumber)
     .option(
       "--claude-code-judge-timeout <ms>",
-      "claude-code judge/grader subprocess timeout in milliseconds; defaults to --claude-code-timeout"
+      "claude-code judge/grader subprocess timeout in milliseconds; defaults to --claude-code-timeout",
+      parseNumber
     )
     .option("--claude-code-binary <path>", 'Path to the claude executable (default: "claude" resolved via PATH)')
     .option("--claude-code-allowed-tools <tool>", "Tool name to allow (repeatable), forwarded to claude --allowedTools", list, [])
     .option("--claude-code-disallowed-tools <tool>", "Tool name to deny (repeatable), forwarded to claude --disallowedTools", list, [])
-    .option("--include <glob>", "Include skill relPath glob", list, [])
-    .option("--exclude <glob>", "Exclude skill relPath glob", list, [])
-    .option("--concurrency <number>", "Eval cases to run in parallel")
+    .option("--include <glob>", "Include skill relPath glob", list)
+    .option("--exclude <glob>", "Exclude skill relPath glob", list)
+    .option("--concurrency <number>", "Eval cases to run in parallel", parseNumber)
     .option("--report", "Generate the static HTML report")
     .option("--no-report", "Skip HTML report generation")
+    .option("--color", "Force ANSI color")
     .option("--no-color", "Disable ANSI color")
     .option("--verbose", "Print full prompts, outputs, and judge prompts")
     .option("--layout <layout>", "Artifact layout: iteration or flat")
@@ -135,68 +91,11 @@ async function main(): Promise<void> {
   program.parse(process.argv);
   const opts = program.opts<CliOptions>();
   const config = opts.config ? loadConfigFile(opts.config) : {};
-  const root = program.args[0] !== undefined && program.args[0] !== "." ? program.args[0] : config.root ?? ".";
-  const workspace = opts.workspace ?? config.workspace ?? "./agent-skills-workspace";
-  const targetModel = opts.target ?? config.target ?? "gpt-4o-mini";
-  const judgeModel = opts.judge ?? config.judge ?? targetModel;
-  const apiKeyEnv = opts.apiKeyEnv ?? config.apiKeyEnv ?? "OPENAI_API_KEY";
-  const baseUrl = opts.baseUrl ?? config.baseUrl ?? process.env.OPENAI_BASE_URL;
-  const apiKey = process.env[apiKeyEnv];
-  const runMode = opts.runMode ?? config.runMode ?? "api";
-  const apiTimeoutMs =
-    opts.apiTimeout !== undefined
-      ? Number.parseInt(opts.apiTimeout, 10)
-      : config.api?.timeoutMs ?? 120_000;
-  const apiJudgeTimeoutMs =
-    opts.apiJudgeTimeout !== undefined
-      ? Number.parseInt(opts.apiJudgeTimeout, 10)
-      : config.api?.judgeTimeoutMs ?? apiTimeoutMs;
-  const include = opts.include && opts.include.length > 0 ? opts.include : config.include;
-  const exclude = opts.exclude && opts.exclude.length > 0 ? opts.exclude : config.exclude;
-  const concurrency = opts.concurrency !== undefined
-    ? Number.parseInt(opts.concurrency, 10)
-    : config.concurrency ?? 4;
-  const layout = opts.layout ?? config.layout ?? "iteration";
-  const strict = opts.strict ?? config.strict ?? false;
-  const enabledReport = opts.report ?? reportEnabled(config.report) ?? true;
-  const title = opts.reportTitle ?? reportTitle(config.report);
-  const output = opts.reportOutput ?? reportOutput(config.report);
-  const logFormat = opts.logFormat ?? config.logging?.format ?? "pretty";
-  const logFile = opts.logFile ?? config.logging?.file;
-  const verbose = opts.verbose ?? config.logging?.verbose ?? false;
-  const color = opts.color ?? config.logging?.color ?? "auto";
-  const opencodeAgent = opts.opencodeAgent ?? config.opencode?.agent;
-  const opencodeBaseUrl = config.opencode?.baseUrl;
-  const opencodeAuto = opts.opencodeAuto ?? config.opencode?.auto ?? false;
-  const opencodeDir = opts.opencodeDir ?? config.opencode?.dir ?? process.cwd();
-  const opencodeTimeoutMs =
-    opts.opencodeTimeout !== undefined
-      ? Number.parseInt(opts.opencodeTimeout, 10)
-      : config.opencode?.timeoutMs ?? 5 * 60 * 1000;
-  const opencodeJudgeTimeoutMs =
-    opts.opencodeJudgeTimeout !== undefined
-      ? Number.parseInt(opts.opencodeJudgeTimeout, 10)
-      : config.opencode?.judgeTimeoutMs ?? opencodeTimeoutMs;
-  const claudeCodeAgent = opts.claudeCodeAgent ?? config.claudeCode?.agent;
-  const claudeCodeAuto = opts.claudeCodeAuto ?? config.claudeCode?.auto ?? false;
-  const claudeCodeDir = opts.claudeCodeDir ?? config.claudeCode?.dir ?? process.cwd();
-  const claudeCodeBinary = opts.claudeCodeBinary ?? config.claudeCode?.claudeBinary;
-  const claudeCodeAllowedTools =
-    opts.claudeCodeAllowedTools && opts.claudeCodeAllowedTools.length > 0
-      ? opts.claudeCodeAllowedTools
-      : config.claudeCode?.allowedTools;
-  const claudeCodeDisallowedTools =
-    opts.claudeCodeDisallowedTools && opts.claudeCodeDisallowedTools.length > 0
-      ? opts.claudeCodeDisallowedTools
-      : config.claudeCode?.disallowedTools;
-  const claudeCodeTimeoutMs =
-    opts.claudeCodeTimeout !== undefined
-      ? Number.parseInt(opts.claudeCodeTimeout, 10)
-      : config.claudeCode?.timeoutMs ?? 5 * 60 * 1000;
-  const claudeCodeJudgeTimeoutMs =
-    opts.claudeCodeJudgeTimeout !== undefined
-      ? Number.parseInt(opts.claudeCodeJudgeTimeout, 10)
-      : config.claudeCode?.judgeTimeoutMs ?? claudeCodeTimeoutMs;
+  const resolved = resolveConfig(opts, config, program.processedArgs[0]);
+  const { targetModel, judgeModel, runMode, concurrency, layout } = resolved;
+  const { format: logFormat, file: logFile, verbose, color } = resolved.logging;
+  const apiKey = process.env[resolved.apiKeyEnv];
+  const baseUrl = resolved.baseUrl ?? process.env.OPENAI_BASE_URL;
 
   if (runMode !== "api" && runMode !== "opencode" && runMode !== "claude-code") {
     throw new Error('--run-mode must be "api", "opencode", or "claude-code"');
@@ -206,7 +105,7 @@ async function main(): Promise<void> {
       throw new Error("provide --base-url or set OPENAI_BASE_URL");
     }
     if (!apiKey) {
-      throw new Error(`environment variable ${apiKeyEnv} is not set`);
+      throw new Error(`environment variable ${resolved.apiKeyEnv} is not set`);
     }
   }
   if (runMode === "opencode" && !opts.target && !config.target) {
@@ -226,22 +125,31 @@ async function main(): Promise<void> {
   if (logFormat !== "pretty" && logFormat !== "jsonl" && logFormat !== "silent") {
     throw new Error('--log-format must be "pretty", "jsonl", or "silent"');
   }
-  if (runMode === "api" && (!Number.isInteger(apiTimeoutMs) || apiTimeoutMs < 1)) {
+  if (runMode === "api" && (!Number.isInteger(resolved.api.timeoutMs) || resolved.api.timeoutMs < 1)) {
     throw new Error("--api-timeout must be a positive integer (milliseconds)");
   }
-  if (runMode === "api" && (!Number.isInteger(apiJudgeTimeoutMs) || apiJudgeTimeoutMs < 1)) {
+  if (runMode === "api" && (!Number.isInteger(resolved.api.judgeTimeoutMs) || resolved.api.judgeTimeoutMs < 1)) {
     throw new Error("--api-judge-timeout must be a positive integer (milliseconds)");
   }
-  if (runMode === "opencode" && (!Number.isInteger(opencodeTimeoutMs) || opencodeTimeoutMs < 1)) {
+  if (runMode === "opencode" && (!Number.isInteger(resolved.opencode.timeoutMs) || resolved.opencode.timeoutMs < 1)) {
     throw new Error("--opencode-timeout must be a positive integer (milliseconds)");
   }
-  if (runMode === "opencode" && (!Number.isInteger(opencodeJudgeTimeoutMs) || opencodeJudgeTimeoutMs < 1)) {
+  if (
+    runMode === "opencode" &&
+    (!Number.isInteger(resolved.opencode.judgeTimeoutMs) || resolved.opencode.judgeTimeoutMs < 1)
+  ) {
     throw new Error("--opencode-judge-timeout must be a positive integer (milliseconds)");
   }
-  if (runMode === "claude-code" && (!Number.isInteger(claudeCodeTimeoutMs) || claudeCodeTimeoutMs < 1)) {
+  if (
+    runMode === "claude-code" &&
+    (!Number.isInteger(resolved.claudeCode.timeoutMs) || resolved.claudeCode.timeoutMs < 1)
+  ) {
     throw new Error("--claude-code-timeout must be a positive integer (milliseconds)");
   }
-  if (runMode === "claude-code" && (!Number.isInteger(claudeCodeJudgeTimeoutMs) || claudeCodeJudgeTimeoutMs < 1)) {
+  if (
+    runMode === "claude-code" &&
+    (!Number.isInteger(resolved.claudeCode.judgeTimeoutMs) || resolved.claudeCode.judgeTimeoutMs < 1)
+  ) {
     throw new Error("--claude-code-judge-timeout must be a positive integer (milliseconds)");
   }
 
@@ -251,59 +159,59 @@ async function main(): Promise<void> {
     target = new OpencodeProvider({
       providerName: "opencode",
       model: targetModel,
-      agent: opencodeAgent,
-      dir: opencodeDir,
-      auto: opencodeAuto,
-      timeoutMs: opencodeTimeoutMs,
-      baseUrl: opencodeBaseUrl,
+      agent: resolved.opencode.agent,
+      dir: resolved.opencode.dir,
+      auto: resolved.opencode.auto,
+      timeoutMs: resolved.opencode.timeoutMs,
+      baseUrl: resolved.opencode.baseUrl,
     });
     judge = new OpencodeProvider({
       providerName: "opencode",
       model: judgeModel,
-      agent: opencodeAgent,
-      dir: opencodeDir,
-      auto: opencodeAuto,
-      timeoutMs: opencodeJudgeTimeoutMs,
-      baseUrl: opencodeBaseUrl,
+      agent: resolved.opencode.agent,
+      dir: resolved.opencode.dir,
+      auto: resolved.opencode.auto,
+      timeoutMs: resolved.opencode.judgeTimeoutMs,
+      baseUrl: resolved.opencode.baseUrl,
     });
   } else if (runMode === "claude-code") {
     target = new ClaudeCodeProvider({
       providerName: "claude-code",
       model: targetModel,
-      agent: claudeCodeAgent,
-      dir: claudeCodeDir,
-      auto: claudeCodeAuto,
-      timeoutMs: claudeCodeTimeoutMs,
-      claudeBinary: claudeCodeBinary,
-      allowedTools: claudeCodeAllowedTools,
-      disallowedTools: claudeCodeDisallowedTools,
+      agent: resolved.claudeCode.agent,
+      dir: resolved.claudeCode.dir,
+      auto: resolved.claudeCode.auto,
+      timeoutMs: resolved.claudeCode.timeoutMs,
+      claudeBinary: resolved.claudeCode.binary,
+      allowedTools: resolved.claudeCode.allowedTools,
+      disallowedTools: resolved.claudeCode.disallowedTools,
     });
     judge = new ClaudeCodeProvider({
       providerName: "claude-code",
       model: judgeModel,
-      agent: claudeCodeAgent,
-      dir: claudeCodeDir,
-      auto: claudeCodeAuto,
-      timeoutMs: claudeCodeJudgeTimeoutMs,
-      claudeBinary: claudeCodeBinary,
-      allowedTools: claudeCodeAllowedTools,
-      disallowedTools: claudeCodeDisallowedTools,
+      agent: resolved.claudeCode.agent,
+      dir: resolved.claudeCode.dir,
+      auto: resolved.claudeCode.auto,
+      timeoutMs: resolved.claudeCode.judgeTimeoutMs,
+      claudeBinary: resolved.claudeCode.binary,
+      allowedTools: resolved.claudeCode.allowedTools,
+      disallowedTools: resolved.claudeCode.disallowedTools,
     });
   } else {
-    const creds = requireApiCredentials(baseUrl, apiKey, apiKeyEnv);
+    const creds = requireApiCredentials(baseUrl, apiKey, resolved.apiKeyEnv);
     target = new OpenAICompatibleProvider({
       providerName: "openai-compatible",
       baseUrl: creds.baseUrl,
       apiKey: creds.apiKey,
       model: targetModel,
-      timeoutMs: apiTimeoutMs,
+      timeoutMs: resolved.api.timeoutMs,
     });
     judge = new OpenAICompatibleProvider({
       providerName: "openai-compatible",
       baseUrl: creds.baseUrl,
       apiKey: creds.apiKey,
       model: judgeModel,
-      timeoutMs: apiJudgeTimeoutMs,
+      timeoutMs: resolved.api.judgeTimeoutMs,
     });
   }
 
@@ -324,19 +232,19 @@ async function main(): Promise<void> {
   const unregisterReporter = closeReporter ? registerShutdownHook(closeReporter) : undefined;
   try {
     const result = await evaluateSkills({
-      root,
-      workspace,
-      baseline: opts.baseline ?? config.baseline ?? false,
+      root: resolved.root,
+      workspace: resolved.workspace,
+      baseline: resolved.baseline,
       target: { model: targetModel, provider: target },
       judge: { model: judgeModel, provider: judge },
-      include,
-      exclude,
+      include: resolved.include,
+      exclude: resolved.exclude,
       concurrency,
-      report: enabledReport,
-      reportTitle: title,
-      reportOutput: output,
+      report: resolved.report.enabled,
+      reportTitle: resolved.report.title,
+      reportOutput: resolved.report.output,
       workspaceLayout: layout,
-      strict,
+      strict: resolved.strict,
       targetParams: config.targetParams,
       judgeParams: config.judgeParams,
       onEvent,

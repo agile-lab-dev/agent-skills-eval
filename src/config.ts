@@ -36,6 +36,44 @@ export interface ApiConfig {
   judgeTimeoutMs?: number;
 }
 
+export interface CliOptions {
+  config?: string;
+  workspace?: string;
+  baseline?: boolean;
+  target?: string;
+  judge?: string;
+  baseUrl?: string;
+  apiKeyEnv?: string;
+  runMode?: ProviderRunMode;
+  apiTimeout?: number;
+  apiJudgeTimeout?: number;
+  opencodeAgent?: string;
+  opencodeAuto?: boolean;
+  opencodeDir?: string;
+  opencodeTimeout?: number;
+  opencodeJudgeTimeout?: number;
+  claudeCodeAgent?: string;
+  claudeCodeAuto?: boolean;
+  claudeCodeDir?: string;
+  claudeCodeTimeout?: number;
+  claudeCodeJudgeTimeout?: number;
+  claudeCodeBinary?: string;
+  claudeCodeAllowedTools?: string[];
+  claudeCodeDisallowedTools?: string[];
+  include?: string[];
+  exclude?: string[];
+  concurrency?: number;
+  report?: boolean;
+  color?: boolean;
+  verbose?: boolean;
+  layout?: WorkspaceLayout;
+  strict?: boolean;
+  logFormat?: LogFormat;
+  logFile?: string;
+  reportTitle?: string;
+  reportOutput?: string;
+}
+
 export interface AgentSkillsEvalConfig {
   root?: string;
   workspace?: string;
@@ -223,4 +261,149 @@ export function loadConfigFile(filePath: string): AgentSkillsEvalConfig {
   const ext = path.extname(absolutePath).toLowerCase();
   const raw = ext === ".json" ? JSON.parse(text) : load(text);
   return normalizeConfig(raw);
+}
+
+// ─── CLI flag / config-file / default precedence ──────────────────────────
+// Pure merge helpers: CLI flag wins, then the config file, then a static
+// fallback (or `undefined` for fields with no fallback). Kept free of
+// `process.env` reads and `Number.parseInt` so they're trivially unit
+// testable with plain objects (see test/config.test.mjs).
+
+export function resolveOpt<T>(cliVal: T | undefined, configVal: T | undefined, fallback: T): T {
+  return cliVal ?? configVal ?? fallback;
+}
+
+export function resolveOptional<T>(cliVal: T | undefined, configVal: T | undefined): T | undefined {
+  return cliVal ?? configVal;
+}
+
+/** Narrows the `report` union (`boolean | { enabled?, title?, output? }`) to a plain object. */
+function normalizeReportConfig(report: AgentSkillsEvalConfig["report"]): {
+  enabled?: boolean;
+  title?: string;
+  output?: string;
+} {
+  if (report === undefined) return {};
+  if (typeof report === "boolean") return { enabled: report };
+  return report;
+}
+
+export interface ResolvedConfig {
+  root: string;
+  workspace: string;
+  baseline: boolean;
+  targetModel: string;
+  judgeModel: string;
+  apiKeyEnv: string;
+  baseUrl: string | undefined;
+  runMode: ProviderRunMode;
+  include: string[] | undefined;
+  exclude: string[] | undefined;
+  concurrency: number;
+  layout: WorkspaceLayout;
+  strict: boolean;
+  report: { enabled: boolean; title: string | undefined; output: string | undefined };
+  logging: { format: LogFormat; file: string | undefined; verbose: boolean; color: boolean | "auto" };
+  api: { timeoutMs: number; judgeTimeoutMs: number };
+  opencode: {
+    agent: string | undefined;
+    baseUrl: string | undefined;
+    auto: boolean;
+    dir: string;
+    timeoutMs: number;
+    judgeTimeoutMs: number;
+  };
+  claudeCode: {
+    agent: string | undefined;
+    auto: boolean;
+    dir: string;
+    binary: string | undefined;
+    allowedTools: string[] | undefined;
+    disallowedTools: string[] | undefined;
+    timeoutMs: number;
+    judgeTimeoutMs: number;
+  };
+}
+
+/**
+ * Merges commander's parsed CLI options with the (already `normalizeConfig`'d)
+ * config file into one flat, fully-resolved settings object: CLI flag beats
+ * config file beats default.
+ *
+ * `positionalRoot` is commander's parsed `[root]` positional argument. It has
+ * a static default of `"."`, so it's indistinguishable from the user typing
+ * `.` explicitly — a known commander limitation, not solved here.
+ *
+ * Deliberately does not read `process.env` or parse strings to numbers: both
+ * stay the caller's responsibility so this function stays pure and testable
+ * with plain objects.
+ */
+export function resolveConfig(
+  cli: CliOptions,
+  config: AgentSkillsEvalConfig,
+  positionalRoot: string
+): ResolvedConfig {
+  const targetModel = resolveOpt(cli.target, config.target, "gpt-4o-mini");
+  const judgeModel = resolveOpt(cli.judge, config.judge, targetModel);
+
+  const apiTimeoutMs = resolveOpt(cli.apiTimeout, config.api?.timeoutMs, 120_000);
+  const opencodeTimeoutMs = resolveOpt(cli.opencodeTimeout, config.opencode?.timeoutMs, 5 * 60 * 1000);
+  const claudeCodeTimeoutMs = resolveOpt(cli.claudeCodeTimeout, config.claudeCode?.timeoutMs, 5 * 60 * 1000);
+
+  const reportConfig = normalizeReportConfig(config.report);
+
+  return {
+    root: positionalRoot !== "." ? positionalRoot : config.root ?? ".",
+    workspace: resolveOpt(cli.workspace, config.workspace, "./agent-skills-workspace"),
+    baseline: resolveOpt(cli.baseline, config.baseline, false),
+    targetModel,
+    judgeModel,
+    apiKeyEnv: resolveOpt(cli.apiKeyEnv, config.apiKeyEnv, "OPENAI_API_KEY"),
+    baseUrl: resolveOptional(cli.baseUrl, config.baseUrl),
+    runMode: resolveOpt(cli.runMode, config.runMode, "api"),
+    include: resolveOptional(cli.include, config.include),
+    exclude: resolveOptional(cli.exclude, config.exclude),
+    concurrency: resolveOpt(cli.concurrency, config.concurrency, 4),
+    layout: resolveOpt(cli.layout, config.layout, "iteration"),
+    strict: resolveOpt(cli.strict, config.strict, false),
+    report: {
+      enabled: resolveOpt(cli.report, reportConfig.enabled, true),
+      title: resolveOptional(cli.reportTitle, reportConfig.title),
+      output: resolveOptional(cli.reportOutput, reportConfig.output),
+    },
+    logging: {
+      format: resolveOpt(cli.logFormat, config.logging?.format, "pretty"),
+      file: resolveOptional(cli.logFile, config.logging?.file),
+      verbose: resolveOpt(cli.verbose, config.logging?.verbose, false),
+      color: resolveOpt(cli.color, config.logging?.color, "auto"),
+    },
+    api: {
+      timeoutMs: apiTimeoutMs,
+      judgeTimeoutMs: resolveOpt(cli.apiJudgeTimeout, config.api?.judgeTimeoutMs, apiTimeoutMs),
+    },
+    opencode: {
+      agent: resolveOptional(cli.opencodeAgent, config.opencode?.agent),
+      baseUrl: config.opencode?.baseUrl,
+      auto: resolveOpt(cli.opencodeAuto, config.opencode?.auto, false),
+      dir: resolveOpt(cli.opencodeDir, config.opencode?.dir, process.cwd()),
+      timeoutMs: opencodeTimeoutMs,
+      judgeTimeoutMs: resolveOpt(cli.opencodeJudgeTimeout, config.opencode?.judgeTimeoutMs, opencodeTimeoutMs),
+    },
+    claudeCode: {
+      agent: resolveOptional(cli.claudeCodeAgent, config.claudeCode?.agent),
+      auto: resolveOpt(cli.claudeCodeAuto, config.claudeCode?.auto, false),
+      dir: resolveOpt(cli.claudeCodeDir, config.claudeCode?.dir, process.cwd()),
+      binary: resolveOptional(cli.claudeCodeBinary, config.claudeCode?.claudeBinary),
+      allowedTools:
+        cli.claudeCodeAllowedTools && cli.claudeCodeAllowedTools.length > 0
+          ? cli.claudeCodeAllowedTools
+          : config.claudeCode?.allowedTools,
+      disallowedTools:
+        cli.claudeCodeDisallowedTools && cli.claudeCodeDisallowedTools.length > 0
+          ? cli.claudeCodeDisallowedTools
+          : config.claudeCode?.disallowedTools,
+      timeoutMs: claudeCodeTimeoutMs,
+      judgeTimeoutMs: resolveOpt(cli.claudeCodeJudgeTimeout, config.claudeCode?.judgeTimeoutMs, claudeCodeTimeoutMs),
+    },
+  };
 }
