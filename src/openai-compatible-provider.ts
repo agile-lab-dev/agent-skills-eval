@@ -64,6 +64,47 @@ function openAiUsesMaxCompletionTokens(model: string): boolean {
   return false;
 }
 
+class HttpStatusError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs?: number
+  ) {
+    super(message);
+  }
+}
+
+// Per RFC 9110 §10.2.3, Retry-After is either delta-seconds or an HTTP-date.
+// This API surface (OpenAI-compatible chat completion proxies) only ever
+// sends delta-seconds in practice, but HTTP-date is cheap to support too —
+// Date.parse handles it natively, so no extra dependency needed.
+function parseRetryAfterMs(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+  return undefined;
+}
+
+// Status codes that will never succeed on retry: bad auth, malformed
+// request, not found, unprocessable. Fail fast, don't burn the budget.
+const NON_RETRYABLE_STATUSES = new Set([400, 401, 403, 404, 422]);
+
+// Explicit allowlist rather than a `>= 500` range: an unlisted 5xx (e.g.
+// 501 Not Implemented, 505) is treated as non-retryable by default, since
+// retrying a status this function doesn't recognize is more likely to be
+// wrong than right.
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function isRetryableStatus(status: number): boolean {
+  if (RETRYABLE_STATUSES.has(status)) return true;
+  if (NON_RETRYABLE_STATUSES.has(status)) return false;
+  return false; // conservative default for anything unlisted
+}
+
+const MAX_RETRY_AFTER_MS = 30_000; // guard against a misbehaving upstream telling us to wait an hour
+
 function parseToolCalls(raw: OpenAIToolCallWire[] | undefined): ToolCall[] | undefined {
   if (!raw || raw.length === 0) return undefined;
   return raw
@@ -241,7 +282,8 @@ export class OpenAICompatibleProvider implements Provider {
         });
 
         if (!res.ok) {
-          throw new Error(`${this.name} ${res.status}: ${await res.text()}`);
+          const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
+          throw new HttpStatusError(`${this.name} ${res.status}: ${await res.text()}`, res.status, retryAfterMs);
         }
 
         return (await res.json()) as OpenAIChatResponse;
@@ -252,8 +294,18 @@ export class OpenAICompatibleProvider implements Provider {
             : err instanceof Error
               ? err
               : new Error(String(err));
+
+        if (err instanceof HttpStatusError && !isRetryableStatus(err.status)) {
+          throw err; // fail fast — no attempt/delay budget spent on a doomed request
+        }
+
         if (attempt < attempts) {
-          await new Promise((resolve) => setTimeout(resolve, backoffMs * attempt));
+          const computedDelay = backoffMs * attempt;
+          const delay =
+            err instanceof HttpStatusError && err.retryAfterMs !== undefined
+              ? Math.min(err.retryAfterMs, MAX_RETRY_AFTER_MS)
+              : computedDelay;
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       } finally {
         clearTimeout(timer);
