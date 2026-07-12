@@ -13,33 +13,7 @@ import sys
 from pathlib import Path
 
 
-def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") -> str:
-    """Generate HTML report from loop output data. If auto_refresh is True, adds a meta refresh tag."""
-    history = data.get("history", [])
-    holdout = data.get("holdout", 0)
-    title_prefix = html.escape(skill_name + " \u2014 ") if skill_name else ""
-
-    # Get all unique queries from train and test sets, with should_trigger info
-    train_queries: list[dict] = []
-    test_queries: list[dict] = []
-    if history:
-        for r in history[0].get("train_results", history[0].get("results", [])):
-            train_queries.append({"query": r["query"], "should_trigger": r.get("should_trigger", True)})
-        if history[0].get("test_results"):
-            for r in history[0].get("test_results", []):
-                test_queries.append({"query": r["query"], "should_trigger": r.get("should_trigger", True)})
-
-    refresh_tag = '    <meta http-equiv="refresh" content="5">\n' if auto_refresh else ""
-
-    html_parts = ["""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-""" + refresh_tag + """    <title>""" + title_prefix + """Skill Description Optimization</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
-    <style>
+REPORT_STYLES = """    <style>
         body {
             font-family: 'Lora', Georgia, serif;
             max-width: 100%;
@@ -143,29 +117,54 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
         .swatch-negative { background: #141413; border-bottom: 3px solid #c44; }
         .swatch-test { background: #6a9bcc; }
         .swatch-train { background: #141413; }
-    </style>
-</head>
-<body>
-    <h1>""" + title_prefix + """Skill Description Optimization</h1>
-    <div class="explainer">
-        <strong>Optimizing your skill's description.</strong> This page updates automatically as Claude tests different versions of your skill's description. Each row is an iteration — a new description attempt. The columns show test queries: green checkmarks mean the skill triggered correctly (or correctly didn't trigger), red crosses mean it got it wrong. The "Train" score shows performance on queries used to improve the description; the "Test" score shows performance on held-out queries the optimizer hasn't seen. When it's done, Claude will apply the best-performing description to your skill.
-    </div>
-"""]
+    </style>"""
 
-    # Summary section
+
+def _extract_queries(history: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Get all unique queries from train and test sets, with should_trigger info."""
+    train_queries: list[dict] = []
+    test_queries: list[dict] = []
+    if history:
+        for r in history[0].get("train_results", history[0].get("results", [])):
+            train_queries.append({"query": r["query"], "should_trigger": r.get("should_trigger", True)})
+        if history[0].get("test_results"):
+            for r in history[0].get("test_results", []):
+                test_queries.append({"query": r["query"], "should_trigger": r.get("should_trigger", True)})
+    return train_queries, test_queries
+
+
+def render_head(auto_refresh: bool, title_prefix: str) -> str:
+    """Render the <!DOCTYPE>/<head> section, including the refresh meta tag and styles."""
+    refresh_tag = '    <meta http-equiv="refresh" content="5">\n' if auto_refresh else ""
+    return ("""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+""" + refresh_tag + """    <title>""" + title_prefix + """Skill Description Optimization</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+""" + REPORT_STYLES + """
+</head>
+""")
+
+
+def render_summary(data: dict) -> str:
+    """Render the .summary div (original/best description, best score, counts)."""
     best_test_score = data.get('best_test_score')
-    best_train_score = data.get('best_train_score')
-    html_parts.append(f"""
+    return f"""
     <div class="summary">
         <p><strong>Original:</strong> {html.escape(data.get('original_description', 'N/A'))}</p>
         <p class="best"><strong>Best:</strong> {html.escape(data.get('best_description', 'N/A'))}</p>
         <p><strong>Best Score:</strong> {data.get('best_score', 'N/A')} {'(test)' if best_test_score else '(train)'}</p>
         <p><strong>Iterations:</strong> {data.get('iterations_run', 0)} | <strong>Train:</strong> {data.get('train_size', '?')} | <strong>Test:</strong> {data.get('test_size', '?')}</p>
     </div>
-""")
+"""
 
-    # Legend
-    html_parts.append("""
+
+def render_legend() -> str:
+    """Render the static query-column legend."""
+    return """
     <div class="legend">
         <span style="font-weight:600">Query columns:</span>
         <span class="legend-item"><span class="legend-swatch swatch-positive"></span> Should trigger</span>
@@ -173,10 +172,12 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
         <span class="legend-item"><span class="legend-swatch swatch-train"></span> Train</span>
         <span class="legend-item"><span class="legend-swatch swatch-test"></span> Test</span>
     </div>
-""")
+"""
 
-    # Table header
-    html_parts.append("""
+
+def render_table_header(train_queries: list[dict], test_queries: list[dict]) -> str:
+    """Render the <thead> row, including one column per train/test query."""
+    parts = ["""
     <div class="table-container">
     <table>
         <thead>
@@ -185,22 +186,112 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
                 <th>Train</th>
                 <th>Test</th>
                 <th class="query-col">Description</th>
-""")
+"""]
 
     # Add column headers for train queries
     for qinfo in train_queries:
         polarity = "positive-col" if qinfo["should_trigger"] else "negative-col"
-        html_parts.append(f'                <th class="{polarity}">{html.escape(qinfo["query"])}</th>\n')
+        parts.append(f'                <th class="{polarity}">{html.escape(qinfo["query"])}</th>\n')
 
     # Add column headers for test queries (different color)
     for qinfo in test_queries:
         polarity = "positive-col" if qinfo["should_trigger"] else "negative-col"
-        html_parts.append(f'                <th class="test-col {polarity}">{html.escape(qinfo["query"])}</th>\n')
+        parts.append(f'                <th class="test-col {polarity}">{html.escape(qinfo["query"])}</th>\n')
 
-    html_parts.append("""            </tr>
+    parts.append("""            </tr>
         </thead>
         <tbody>
 """)
+
+    return "".join(parts)
+
+
+def _aggregate_runs(results: list[dict]) -> tuple[int, int]:
+    """Compute aggregate correct/total runs across all retries."""
+    correct = 0
+    total = 0
+    for r in results:
+        runs = r.get("runs", 0)
+        triggers = r.get("triggers", 0)
+        total += runs
+        if r.get("should_trigger", True):
+            correct += triggers
+        else:
+            correct += runs - triggers
+    return correct, total
+
+
+def _score_class(correct: int, total: int) -> str:
+    """Determine the score-good/score-ok/score-bad class for a correct/total ratio."""
+    if total > 0:
+        ratio = correct / total
+        if ratio >= 0.8:
+            return "score-good"
+        elif ratio >= 0.5:
+            return "score-ok"
+    return "score-bad"
+
+
+def render_query_cell(result: dict, css_extra: str = "") -> str:
+    """Render a single result <td> for one query column (train or test)."""
+    did_pass = result.get("pass", False)
+    triggers = result.get("triggers", 0)
+    runs = result.get("runs", 0)
+
+    icon = "✓" if did_pass else "✗"
+    css_class = "pass" if did_pass else "fail"
+    if css_extra:
+        css_class = f"{css_extra} {css_class}"
+
+    return f'                <td class="result {css_class}">{icon}<span class="rate">{triggers}/{runs}</span></td>\n'
+
+
+def render_history_row(entry: dict, train_queries: list[dict], test_queries: list[dict], best_iter) -> str:
+    """Render a single <tr> for one iteration of history."""
+    iteration = entry.get("iteration", "?")
+    description = entry.get("description", "")
+    train_results = entry.get("train_results", entry.get("results", []))
+    test_results = entry.get("test_results", [])
+
+    # Create lookups for results by query
+    train_by_query = {r["query"]: r for r in train_results}
+    test_by_query = {r["query"]: r for r in test_results} if test_results else {}
+
+    # Compute aggregate correct/total runs across all retries
+    train_correct, train_runs = _aggregate_runs(train_results)
+    test_correct, test_runs = _aggregate_runs(test_results)
+
+    # Determine score classes
+    train_class = _score_class(train_correct, train_runs)
+    test_class = _score_class(test_correct, test_runs)
+
+    row_class = "best-row" if iteration == best_iter else ""
+
+    parts = [f"""            <tr class="{row_class}">
+                <td>{iteration}</td>
+                <td><span class="score {train_class}">{train_correct}/{train_runs}</span></td>
+                <td><span class="score {test_class}">{test_correct}/{test_runs}</span></td>
+                <td class="description">{html.escape(description)}</td>
+"""]
+
+    # Add result for each train query
+    for qinfo in train_queries:
+        r = train_by_query.get(qinfo["query"], {})
+        parts.append(render_query_cell(r))
+
+    # Add result for each test query (with different background)
+    for qinfo in test_queries:
+        r = test_by_query.get(qinfo["query"], {})
+        parts.append(render_query_cell(r, "test-result"))
+
+    parts.append("            </tr>\n")
+
+    return "".join(parts)
+
+
+def render_table(history: list[dict], train_queries: list[dict], test_queries: list[dict]) -> str:
+    """Render the full table (header + one row per history entry)."""
+    parts = [render_table_header(train_queries, test_queries)]
 
     # Find best iteration for highlighting
     if test_queries:
@@ -210,88 +301,35 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
 
     # Add rows for each iteration
     for h in history:
-        iteration = h.get("iteration", "?")
-        train_passed = h.get("train_passed", h.get("passed", 0))
-        train_total = h.get("train_total", h.get("total", 0))
-        test_passed = h.get("test_passed")
-        test_total = h.get("test_total")
-        description = h.get("description", "")
-        train_results = h.get("train_results", h.get("results", []))
-        test_results = h.get("test_results", [])
+        parts.append(render_history_row(h, train_queries, test_queries, best_iter))
 
-        # Create lookups for results by query
-        train_by_query = {r["query"]: r for r in train_results}
-        test_by_query = {r["query"]: r for r in test_results} if test_results else {}
-
-        # Compute aggregate correct/total runs across all retries
-        def aggregate_runs(results: list[dict]) -> tuple[int, int]:
-            correct = 0
-            total = 0
-            for r in results:
-                runs = r.get("runs", 0)
-                triggers = r.get("triggers", 0)
-                total += runs
-                if r.get("should_trigger", True):
-                    correct += triggers
-                else:
-                    correct += runs - triggers
-            return correct, total
-
-        train_correct, train_runs = aggregate_runs(train_results)
-        test_correct, test_runs = aggregate_runs(test_results)
-
-        # Determine score classes
-        def score_class(correct: int, total: int) -> str:
-            if total > 0:
-                ratio = correct / total
-                if ratio >= 0.8:
-                    return "score-good"
-                elif ratio >= 0.5:
-                    return "score-ok"
-            return "score-bad"
-
-        train_class = score_class(train_correct, train_runs)
-        test_class = score_class(test_correct, test_runs)
-
-        row_class = "best-row" if iteration == best_iter else ""
-
-        html_parts.append(f"""            <tr class="{row_class}">
-                <td>{iteration}</td>
-                <td><span class="score {train_class}">{train_correct}/{train_runs}</span></td>
-                <td><span class="score {test_class}">{test_correct}/{test_runs}</span></td>
-                <td class="description">{html.escape(description)}</td>
-""")
-
-        # Add result for each train query
-        for qinfo in train_queries:
-            r = train_by_query.get(qinfo["query"], {})
-            did_pass = r.get("pass", False)
-            triggers = r.get("triggers", 0)
-            runs = r.get("runs", 0)
-
-            icon = "✓" if did_pass else "✗"
-            css_class = "pass" if did_pass else "fail"
-
-            html_parts.append(f'                <td class="result {css_class}">{icon}<span class="rate">{triggers}/{runs}</span></td>\n')
-
-        # Add result for each test query (with different background)
-        for qinfo in test_queries:
-            r = test_by_query.get(qinfo["query"], {})
-            did_pass = r.get("pass", False)
-            triggers = r.get("triggers", 0)
-            runs = r.get("runs", 0)
-
-            icon = "✓" if did_pass else "✗"
-            css_class = "pass" if did_pass else "fail"
-
-            html_parts.append(f'                <td class="result test-result {css_class}">{icon}<span class="rate">{triggers}/{runs}</span></td>\n')
-
-        html_parts.append("            </tr>\n")
-
-    html_parts.append("""        </tbody>
+    parts.append("""        </tbody>
     </table>
     </div>
 """)
+
+    return "".join(parts)
+
+
+def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") -> str:
+    """Generate HTML report from loop output data. If auto_refresh is True, adds a meta refresh tag."""
+    history = data.get("history", [])
+    title_prefix = html.escape(skill_name + " — ") if skill_name else ""
+
+    train_queries, test_queries = _extract_queries(history)
+
+    html_parts = [render_head(auto_refresh, title_prefix)]
+
+    html_parts.append("""<body>
+    <h1>""" + title_prefix + """Skill Description Optimization</h1>
+    <div class="explainer">
+        <strong>Optimizing your skill's description.</strong> This page updates automatically as Claude tests different versions of your skill's description. Each row is an iteration — a new description attempt. The columns show test queries: green checkmarks mean the skill triggered correctly (or correctly didn't trigger), red crosses mean it got it wrong. The "Train" score shows performance on queries used to improve the description; the "Test" score shows performance on held-out queries the optimizer hasn't seen. When it's done, Claude will apply the best-performing description to your skill.
+    </div>
+""")
+
+    html_parts.append(render_summary(data))
+    html_parts.append(render_legend())
+    html_parts.append(render_table(history, train_queries, test_queries))
 
     html_parts.append("""
 </body>
