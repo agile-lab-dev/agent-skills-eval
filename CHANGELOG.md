@@ -51,6 +51,10 @@ All notable changes to this project are documented here.
   consumed this field; removing it also drops a per-skill filesystem walk on
   every `discoverSkills()` call. Breaking change for TypeScript consumers that
   reference `SkillRef["pluginName"]`.
+- **Package renamed** to `@agilelab/agent-skills-eval` following the project's
+  fork into `agilelab-dev/agent-skills-eval`; repository, homepage, and bugs
+  URLs updated accordingly. README now carries a fork notice pointing back to
+  the original [darkrishabh/agent-skills-eval](https://github.com/darkrishabh/agent-skills-eval).
 
 ## 0.1.1
 

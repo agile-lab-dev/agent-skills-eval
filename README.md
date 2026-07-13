@@ -78,7 +78,7 @@ Open `iteration-1/report/index.html` and you have a real, evidence-backed answer
 ## Install
 
 ```bash
-npm install agent-skills-eval
+npm install @agilelab/agent-skills-eval
 ```
 
 Or run directly without installing:
