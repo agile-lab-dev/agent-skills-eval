@@ -10,7 +10,7 @@
   "contributors": [
     {
       "name": "agilelab",
-      "url": "https://github.com/agilelab-dev"
+      "url": "https://github.com/agile-lab-dev"
     },
     {
       "name": "tmnd1991",
@@ -107,12 +107,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agilelab-dev/agent-skills-eval.git"
+    "url": "git+https://github.com/agile-lab-dev/agent-skills-eval.git"
   },
   "bugs": {
-    "url": "https://github.com/agilelab-dev/agent-skills-eval/issues"
+    "url": "https://github.com/agile-lab-dev/agent-skills-eval/issues"
   },
-  "homepage": "https://agilelab-dev.github.io/agent-skills-eval/",
+  "homepage": "https://agile-lab-dev.github.io/agent-skills-eval/",
   "funding": {
     "type": "github",
     "url": "https://github.com/sponsors/darkrishabh"

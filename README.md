@@ -10,20 +10,20 @@
 
 Write a `SKILL.md`, drop in some evals, and find out — empirically — whether your skill actually makes the model better at the task.
 
-[![npm version](https://img.shields.io/npm/v/%40agilelab-dev%2Fagent-skills-eval.svg?style=flat-square&logo=npm&label=npm)](https://www.npmjs.com/package/@agilelab-dev/agent-skills-eval)
-[![CI](https://img.shields.io/github/actions/workflow/status/agilelab-dev/agent-skills-eval/ci.yml?style=flat-square&logo=github&label=ci)](https://github.com/agilelab-dev/agent-skills-eval/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40agilelab%2Fagent-skills-eval.svg?style=flat-square&logo=npm&label=npm)](https://www.npmjs.com/package/@agilelab/agent-skills-eval)
+[![CI](https://img.shields.io/github/actions/workflow/status/agile-lab-dev/agent-skills-eval/ci.yml?style=flat-square&logo=github&label=ci)](https://github.com/agile-lab-dev/agent-skills-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![node](https://img.shields.io/node/v/%40agilelab-dev%2Fagent-skills-eval.svg?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
-[![docs](https://img.shields.io/badge/docs-GitHub%20Pages-0f766e?style=flat-square)](https://agilelab-dev.github.io/agent-skills-eval/)
+[![node](https://img.shields.io/node/v/%40agilelab%2Fagent-skills-eval.svg?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
+[![docs](https://img.shields.io/badge/docs-GitHub%20Pages-0f766e?style=flat-square)](https://agile-lab-dev.github.io/agent-skills-eval/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-[Documentation](https://agilelab-dev.github.io/agent-skills-eval/) · [Quickstart](#quickstart) · [SDK](#sdk) · [agentskills.io](https://agentskills.io)
+[Documentation](https://agile-lab-dev.github.io/agent-skills-eval/) · [Quickstart](#quickstart) · [SDK](#sdk) · [agentskills.io](https://agentskills.io)
 
 </div>
 
 ---
 
-> **Fork notice:** this is agilelab-dev's fork of [darkrishabh/agent-skills-eval](https://github.com/darkrishabh/agent-skills-eval). See [`LICENSE`](LICENSE) for original authorship.
+> **Fork notice:** this is agile-lab-dev's fork of [darkrishabh/agent-skills-eval](https://github.com/darkrishabh/agent-skills-eval). See [`LICENSE`](LICENSE) for original authorship.
 
 ---
 
@@ -501,7 +501,7 @@ npm pack --dry-run
 
 ## Documentation
 
-Full docs live at **[agilelab-dev.github.io/agent-skills-eval](https://agilelab-dev.github.io/agent-skills-eval/)** (sources in [`docs/`](docs)). Local preview:
+Full docs live at **[agile-lab-dev.github.io/agent-skills-eval](https://agile-lab-dev.github.io/agent-skills-eval/)** (sources in [`docs/`](docs)). Local preview:
 
 ```bash
 python3 -m http.server 8080 --directory docs

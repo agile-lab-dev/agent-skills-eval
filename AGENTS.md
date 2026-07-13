@@ -4,7 +4,7 @@
 
 `agent-skills-eval` is a TypeScript SDK + CLI that evaluates [Agent Skills](https://agentskills.io) (`SKILL.md` + `evals/evals.json`) by running each eval prompt twice — `with_skill` (skill loaded into context) and `without_skill` (baseline) — through a target model, grading both with an LLM judge, and emitting portable JSON/JSONL artifacts plus a static HTML report.
 
-This is `agilelab-dev`'s fork of `darkrishabh/agent-skills-eval`; the npm package is scoped `@agilelab/agent-skills-eval`.
+This is [AgileLab](https://www.agilelab.it/)'s fork of `darkrishabh/agent-skills-eval`; the npm package is scoped `@agilelab/agent-skills-eval`.
 
 ## Documentation
 
