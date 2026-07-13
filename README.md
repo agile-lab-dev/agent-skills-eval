@@ -175,7 +175,7 @@ import {
   OpenAICompatibleProvider,
   consoleReporter,
   evaluateSkills,
-} from "agent-skills-eval";
+} from "@agilelab/agent-skills-eval";
 
 const provider = new OpenAICompatibleProvider({
   baseUrl: "https://api.openai.com/v1",
@@ -202,7 +202,7 @@ console.log(result);
 Stream events to a file as JSONL for downstream analysis:
 
 ```ts
-import { jsonlReporter } from "agent-skills-eval";
+import { jsonlReporter } from "@agilelab/agent-skills-eval";
 
 const reporter = jsonlReporter({ file: "./events.jsonl" });
 
@@ -213,7 +213,7 @@ await reporter.close();
 Load YAML config programmatically:
 
 ```ts
-import { loadConfigFile } from "agent-skills-eval";
+import { loadConfigFile } from "@agilelab/agent-skills-eval";
 
 const config = loadConfigFile("./agent-skills-eval.yaml");
 ```
@@ -221,7 +221,7 @@ const config = loadConfigFile("./agent-skills-eval.yaml");
 **Signal handling in library mode.** The CLI calls `installSignalHandlers()` for you, so `Ctrl+C`/`SIGTERM` always tears down any in-flight `opencode serve`/`claude` subprocess before the process exits. If you construct `OpencodeProvider`/`ClaudeCodeProvider` directly instead of going through the CLI, call `installSignalHandlers()` yourself once at startup — the providers register their subprocess cleanup with the registry either way, but nothing installs the OS-level `SIGINT`/`SIGTERM` listener unless you (or the CLI) do:
 
 ```ts
-import { installSignalHandlers } from "agent-skills-eval";
+import { installSignalHandlers } from "@agilelab/agent-skills-eval";
 
 installSignalHandlers();
 ```
@@ -231,7 +231,7 @@ installSignalHandlers();
 Bring any backend by implementing the `Provider` interface — five fields, one method:
 
 ```ts
-import type { Provider, ProviderResult } from "agent-skills-eval";
+import type { Provider, ProviderResult } from "@agilelab/agent-skills-eval";
 
 export const provider: Provider = {
   name: "my-provider",
