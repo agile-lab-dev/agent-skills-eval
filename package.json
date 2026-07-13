@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills-eval",
+  "name": "@agilelab-dev/agent-skills-eval",
   "version": "0.2.0",
   "description": "TypeScript SDK and CLI for evaluating agentskills.io-style AI agent skills with LLM judges, baseline comparison, YAML config, JSONL logs, and HTML reports.",
   "type": "module",
@@ -7,6 +7,16 @@
     "name": "Rishabh Mehan",
     "url": "https://github.com/darkrishabh"
   },
+  "contributors": [
+    {
+      "name": "agilelab-dev",
+      "url": "https://github.com/agilelab-dev"
+    },
+    {
+      "name": "tmnd1991",
+      "url": "https://github.com/tmnd1991"
+    }
+  ],
   "sideEffects": false,
   "bin": {
     "agent-skills-eval": "dist/cli.js"
@@ -97,12 +107,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/darkrishabh/agent-skills-eval.git"
+    "url": "git+https://github.com/agilelab-dev/agent-skills-eval.git"
   },
   "bugs": {
-    "url": "https://github.com/darkrishabh/agent-skills-eval/issues"
+    "url": "https://github.com/agilelab-dev/agent-skills-eval/issues"
   },
-  "homepage": "https://darkrishabh.github.io/agent-skills-eval/",
+  "homepage": "https://agilelab-dev.github.io/agent-skills-eval/",
   "funding": {
     "type": "github",
     "url": "https://github.com/sponsors/darkrishabh"
