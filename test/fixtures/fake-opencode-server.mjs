@@ -5,7 +5,10 @@
 // provider's polling/continuation logic without a real opencode install.
 import { createServer } from "node:http";
 
-const DELEGATE_SETTLE_MS = 300;
+// 800ms (not the minimal ~100ms) so the huge-log test's synchronous >10MB
+// filler write reliably finishes before delegation settles and the run's
+// log is captured, even on a loaded CI runner.
+const DELEGATE_SETTLE_MS = 800;
 
 function respondJson(res, status, body) {
   const payload = JSON.stringify(body);

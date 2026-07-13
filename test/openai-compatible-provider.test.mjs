@@ -236,7 +236,12 @@ test("OpenAICompatibleProvider.completeChat: 429 with no Retry-After falls back 
 });
 
 test("OpenAICompatibleProvider.completeChat: Retry-After as an HTTP-date is parsed to a millisecond delay", async () => {
-  const futureDate = new Date(Date.now() + 5000).toUTCString();
+  const start = Date.now();
+  const futureDate = new Date(start + 5000).toUTCString();
+  // toUTCString() truncates to whole seconds, so the parsed target is
+  // floor((start + 5000) / 1000) * 1000, not exactly start + 5000 — predict
+  // that truncated value instead of asserting against the untruncated one.
+  const expectedDelay = Math.floor((start + 5000) / 1000) * 1000 - start;
   const server = await scriptedServer([
     { status: 429, headers: { "retry-after": futureDate } },
     { status: 200, headers: { "content-type": "application/json" }, body: okBody() },
@@ -247,8 +252,8 @@ test("OpenAICompatibleProvider.completeChat: Retry-After as an HTTP-date is pars
     assert.equal(result.error, undefined);
     assert.equal(timer.delays.length, 1);
     assert.ok(
-      Math.abs(timer.delays[0] - 5000) < 500,
-      `expected ~5000ms delay, got ${timer.delays[0]}ms`
+      Math.abs(timer.delays[0] - expectedDelay) < 500,
+      `expected ~${expectedDelay}ms delay, got ${timer.delays[0]}ms`
     );
   } finally {
     timer.restore();

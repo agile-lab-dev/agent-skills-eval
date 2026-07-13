@@ -66,7 +66,7 @@ test("OpencodeProvider.complete: when it spawns its own opencode server, capture
   process.env.PATH = `${binDir}:${originalPath}`;
   try {
     const p = new OpencodeProvider({ model: "fake/model", timeoutMs: 10_000 });
-    // Uses the delegate-race scenario (~300ms of polling before it resolves,
+    // Uses the delegate-race scenario (~800ms of polling before it resolves,
     // see the fixture) so the run outlasts the fake binary's 50ms
     // post-startup log write — proving capture isn't cut off at "settled"
     // the way a fast-resolving prompt wouldn't reliably exercise.
