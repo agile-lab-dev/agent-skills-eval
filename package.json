@@ -1,5 +1,5 @@
 {
-  "name": "@agilelab-dev/agent-skills-eval",
+  "name": "@agilelab/agent-skills-eval",
   "version": "0.2.0",
   "description": "TypeScript SDK and CLI for evaluating agentskills.io-style AI agent skills with LLM judges, baseline comparison, YAML config, JSONL logs, and HTML reports.",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "contributors": [
     {
-      "name": "agilelab-dev",
+      "name": "agilelab",
       "url": "https://github.com/agilelab-dev"
     },
     {

@@ -23,6 +23,10 @@ Write a `SKILL.md`, drop in some evals, and find out — empirically — whether
 
 ---
 
+> **Fork notice:** this is agilelab-dev's fork of [darkrishabh/agent-skills-eval](https://github.com/darkrishabh/agent-skills-eval). See [`LICENSE`](LICENSE) for original authorship.
+
+---
+
 ## Why this exists
 
 [Agent Skills](https://agentskills.io) — the open standard from Anthropic for giving agents domain knowledge — make it easy to ship a `SKILL.md` and assume your agent is now better at the task. The hard part is *proving* it.
@@ -34,7 +38,7 @@ It's the test framework for the Agent Skills ecosystem, separated from any speci
 ## Quickstart
 
 ```bash
-npx agent-skills-eval ./skills \
+npx @agilelab/agent-skills-eval ./skills \
   --target gpt-4o-mini \
   --judge gpt-4o-mini \
   --baseline \
@@ -80,7 +84,7 @@ npm install agent-skills-eval
 Or run directly without installing:
 
 ```bash
-npx agent-skills-eval --help
+npx @agilelab/agent-skills-eval --help
 ```
 
 ## How it works
@@ -157,7 +161,7 @@ judgeParams:
 ```
 
 ```bash
-OPENAI_API_KEY=... npx agent-skills-eval --config agent-skills-eval.yaml
+OPENAI_API_KEY=... npx @agilelab/agent-skills-eval --config agent-skills-eval.yaml
 ```
 
 CLI flags always override config values.
@@ -253,7 +257,7 @@ Useful for: local model servers (Ollama, vLLM, llama.cpp), proprietary internal 
 Instead of calling an OpenAI-compatible API directly, you can route target/judge calls through [`opencode`](https://opencode.ai) via `@opencode-ai/sdk` — useful if you already manage model access/credentials through opencode and don't want to supply a separate `--base-url`/API key to this tool.
 
 ```bash
-npx agent-skills-eval ./skills \
+npx @agilelab/agent-skills-eval ./skills \
   --run-mode opencode \
   --target anthropic/claude-sonnet-5 \
   --opencode-agent build \
@@ -301,7 +305,7 @@ opencode:
 Instead of calling an OpenAI-compatible API directly, you can route target/judge calls through the [`claude`](https://docs.claude.com/en/docs/claude-code) CLI's non-interactive batch mode (`claude -p`) — useful if you already manage model access/credentials through a Claude Code login or subscription and don't want to supply a separate `--base-url`/API key to this tool.
 
 ```bash
-npx agent-skills-eval ./skills \
+npx @agilelab/agent-skills-eval ./skills \
   --run-mode claude-code \
   --target claude-sonnet-5 \
   --claude-code-agent build \
@@ -404,7 +408,7 @@ If you skip `assertions` but provide `expected_output`, the SDK promotes the exp
 ## CLI options
 
 ```bash
-npx agent-skills-eval [root] \
+npx @agilelab/agent-skills-eval [root] \
   --config agent-skills-eval.yaml \
   --workspace ./agent-skills-workspace \
   --baseline \
@@ -430,7 +434,7 @@ npx agent-skills-eval [root] \
 Or run via the [opencode CLI](#opencode-run-mode) instead of an API:
 
 ```bash
-npx agent-skills-eval [root] \
+npx @agilelab/agent-skills-eval [root] \
   --run-mode opencode \
   --target anthropic/claude-sonnet-5 \
   --opencode-agent build \
@@ -440,7 +444,7 @@ npx agent-skills-eval [root] \
 Or via the [`claude` CLI's batch mode](#claude-code-run-mode):
 
 ```bash
-npx agent-skills-eval [root] \
+npx @agilelab/agent-skills-eval [root] \
   --run-mode claude-code \
   --target claude-sonnet-5 \
   --claude-code-timeout 300000
