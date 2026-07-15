@@ -403,7 +403,7 @@ relevant rows.
 }
 ```
 
-If you skip `assertions` but provide `expected_output`, the SDK promotes the expected output into a judge assertion automatically — so a minimal agentskills.io eval file produces meaningful pass/fail grading without extra work.
+If you skip `assertions` but provide `expected_output`, the SDK promotes the expected output into a judge assertion automatically — so a minimal agentskills.io eval file produces meaningful pass/fail grading without extra work. `assertions` also accepts the spelling `expectations` (used by the [`skill-creator`](https://github.com/anthropics/skills/tree/main/skills/skill-creator) skill's own schema doc) as an alias, so eval files authored via skill-creator work without renaming anything; if both are present, `assertions` wins.
 
 ## CLI options
 
@@ -481,7 +481,7 @@ Implements the [agentskills.io](https://agentskills.io) specification end to end
 - `SKILL.md` YAML frontmatter — required `name` and `description`, optional `license`, `compatibility`, `metadata`, `allowed-tools`
 - Strict validation: name length, lowercase-hyphenated format, parent-directory match, description length, compatibility length
 - Optional `scripts/`, `references/`, and `assets/` directories — markdown references included in skill context, scripts exposed by manifest
-- `evals/evals.json` schema: `skill_name`, `evals[].id`, `prompt`, `expected_output`, `files`, `assertions`
+- `evals/evals.json` schema: `skill_name`, `evals[].id`, `prompt`, `expected_output`, `files`, `assertions` (also accepts `expectations` as an alias, for skill-creator compatibility)
 - Official artifact layout: `iteration-N/<eval>/<mode>/outputs`, `timing.json`, `grading.json`, `benchmark.json`
 - Baseline comparison via `with_skill` and `without_skill`
 

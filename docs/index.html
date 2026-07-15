@@ -172,11 +172,13 @@ Identify trends and cite the relevant rows.</code></pre>
           <article>
             <h3>evals/evals.json</h3>
             <pre><code>{
+  "skill_name": "csv-analyzer",
   "evals": [
     {
       "id": "basic",
       "prompt": "Find the highest revenue month.",
       "files": ["evals/files/revenue.csv"],
+      "expected_output": "The response names the highest revenue month.",
       "assertions": [
         "The answer names February."
       ]

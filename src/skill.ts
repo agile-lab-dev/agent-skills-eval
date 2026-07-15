@@ -306,7 +306,9 @@ function parseEval(entry: unknown, evalIndex: number): AgentSkillsEval {
     files: Array.isArray(record.files) ? record.files.filter((file): file is string => typeof file === "string") : undefined,
     assertions: Array.isArray(record.assertions)
       ? record.assertions.map((entry, i) => parseAssertionString(entry, `${where}.assertions[${i}]`))
-      : undefined,
+      : Array.isArray(record.expectations)
+        ? record.expectations.map((entry, i) => parseAssertionString(entry, `${where}.expectations[${i}]`))
+        : undefined,
     params: parseParams(record.params, where),
     tools: parseTools(record.tools, where),
     tool_choice: parseToolChoice(record.tool_choice, where),

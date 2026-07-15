@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+### Added
+
+- `evals/evals.json` rubric checks now also accept the field name
+  `expectations` as an alias for `assertions`, matching the
+  [`skill-creator`](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
+  skill's own schema doc — an eval file authored via skill-creator works
+  without renaming the field. `assertions` takes precedence when both are
+  present.
+
 ## 0.2.0
 
 ### Added

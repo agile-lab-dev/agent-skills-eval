@@ -287,6 +287,72 @@ test("loadSkill normalizes mixed-shape assertions to strings", () => {
   ]);
 });
 
+test("loadSkill accepts expectations as an alias for assertions", () => {
+  const root = tempRoot();
+  const name = "expectations-alias";
+  const dir = path.join(root, name);
+  mkdirSync(path.join(dir, "evals"), { recursive: true });
+  writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: Expectations alias test.\n---\n\nBody.\n`);
+  writeFileSync(path.join(dir, "evals", "evals.json"), JSON.stringify({
+    skill_name: name,
+    evals: [{
+      id: 1,
+      name: "expectations-only",
+      prompt: "Do the thing.",
+      expectations: [
+        "plain string expectation",
+        { text: "object form text" },
+      ],
+    }],
+  }));
+  const skill = loadSkill(dir);
+  assert.deepEqual(skill.evals[0].assertions, [
+    "plain string expectation",
+    "object form text",
+  ]);
+});
+
+test("loadSkill prefers assertions over expectations when both are present", () => {
+  const root = tempRoot();
+  const name = "expectations-and-assertions";
+  const dir = path.join(root, name);
+  mkdirSync(path.join(dir, "evals"), { recursive: true });
+  writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: Precedence test.\n---\n\nBody.\n`);
+  writeFileSync(path.join(dir, "evals", "evals.json"), JSON.stringify({
+    skill_name: name,
+    evals: [{
+      id: 1,
+      name: "both",
+      prompt: "Do the thing.",
+      assertions: ["the real assertion"],
+      expectations: ["ignored expectation"],
+    }],
+  }));
+  const skill = loadSkill(dir);
+  assert.deepEqual(skill.evals[0].assertions, ["the real assertion"]);
+});
+
+test("loadSkill throws with path-aware message on malformed expectations entry", () => {
+  const root = tempRoot();
+  const name = "bad-expectations";
+  const dir = path.join(root, name);
+  mkdirSync(path.join(dir, "evals"), { recursive: true });
+  writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: Bad expectation test.\n---\n\nBody.\n`);
+  writeFileSync(path.join(dir, "evals", "evals.json"), JSON.stringify({
+    skill_name: name,
+    evals: [{
+      id: 1,
+      name: "bad",
+      prompt: "Do the thing.",
+      expectations: ["ok", { foo: "bar" }],
+    }],
+  }));
+  assert.throws(
+    () => loadSkill(dir),
+    (err) => /evals\[0\]\.expectations\[1\]/.test(err.message) && /text\|value\|criterion/.test(err.message),
+  );
+});
+
 test("loadSkill throws with path-aware message on malformed assertion entry", () => {
   const root = tempRoot();
   const name = "bad-assertions";

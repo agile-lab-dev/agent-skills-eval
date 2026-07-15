@@ -29,7 +29,11 @@ export interface AgentSkillsEval {
   prompt: string;
   expected_output?: string;
   files?: string[];
-  /** Free-form rubric assertions graded by the LLM judge. */
+  /**
+   * Free-form rubric assertions graded by the LLM judge. `evals.json` may
+   * also spell this field `expectations` (skill-creator's schema-doc
+   * naming) — it's accepted as an alias and normalized here.
+   */
   assertions?: string[];
   /** Inference params (passthrough) for this case; merged over skill defaults. */
   params?: Record<string, unknown>;
